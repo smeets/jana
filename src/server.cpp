@@ -82,12 +82,10 @@ int main(int argc, char const *argv[])
 				if (len > 0) {
 					if (std::string("HELLO").compare(std::string(hello_world, len)) == 0) {
 						bool known = std::find(clients.begin(), clients.end(), client_addr) != clients.end();
-						if (known) {
-							continue;
-						}
 
-						clients.push_back(client_addr);
 						s.Send(client_addr, "HELLO", 5);
+						if (!known)
+							clients.push_back(client_addr);
 						fprintf(stderr, "\r> registering clients [%d/%d]", clients.size(), N);
 						continue;
 					}
