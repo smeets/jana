@@ -97,23 +97,17 @@ int main(int argc, char const *argv[])
 		}
 
 		fprintf(stderr, "// WAIT PHASE\n");
-		{
-			int late = 0;
-			fprintf(stderr, "> consuming late HELLO ... [%d]", late);
-			while (expect_message(s, "HELLO")) {
-				fprintf(stderr, "\r> consuming late HELLO ... [%d]", ++late);
-			}
-			fprintf(stderr, "\n", late);
-		}
 
 		wait(1000*1000);
-		for (auto & client : clients) {
-			bool ok = s.Send(client, "START", 5);
-			fprintf(stderr, "> sending START to %d.%d.%d.%d:%d %s\n",
-						client.GetA(), client.GetB(),
-						client.GetC(), client.GetD(),
-						client.GetPort(),
-						ok ? "OK" : "FAIL");
+		{
+			int started = 0;
+			fprintf(stderr, "> starting clients [%d/%d]", started, N);
+			for (auto & client : clients) {
+				while (!s.Send(client, "START", 5))
+					wait(100);
+				fprintf(stderr, "\r> starting clients [%d/%d]", ++started, N);
+			}
+			fprintf(stderr, "\n");
 		}
 
 		fprintf(stderr, "// WORK PHASE\n");
