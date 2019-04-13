@@ -31,7 +31,9 @@ bool expect_message(net::Socket & sock, const std::string & want)
 	DATA[len] = '\0';
 
 	if (len > 0) {
-		return want.compare(std::string(DATA, len)) == 0;
+		if (want.compare(std::string(DATA, len)) == 0)
+			return true;
+		printf("> expected %s but got %s\n", want, DATA);
 	}
 
 	return false;
@@ -110,7 +112,7 @@ int main(int argc, char const *argv[])
 					bool ok = heartbeat.Send(server_addr, "HELLO", 5);
 					printf("> sending HELLO to %d.%d.%d.%d:%d [%s]\n",
 						server_addr.GetA(), server_addr.GetB(),
-						server_addr.GetC(), server_addr.GetD(), 
+						server_addr.GetC(), server_addr.GetD(),
 						server_addr.GetPort(), ok ? "ok" : "??");
 				}
 			}
