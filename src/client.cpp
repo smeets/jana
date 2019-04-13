@@ -33,7 +33,7 @@ bool expect_message(net::Socket & sock, const std::string & want)
 	if (len > 0) {
 		if (want.compare(std::string(DATA, len)) == 0)
 			return true;
-		printf("> expected %s but got %s\n", want, DATA);
+		printf("> expected %s but got %s\n", want.c_str(), DATA);
 	}
 
 	return false;
