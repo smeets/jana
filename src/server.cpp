@@ -27,7 +27,7 @@ bool expect_message(net::Socket & sock, const std::string & want)
 {
 	static char DATA[100];
 	net::Address addr;
-	int len = sock.Receive(addr, DATA, 100);
+	int len = sock.receive(addr, DATA, 100);
 	DATA[len] = '\0';
 
 	if (len > 0) {
@@ -60,7 +60,7 @@ int main(int argc, char const *argv[])
 		exit(1);
 	}
 
-	if (!s.Open(3000, SOCK_NONBLOCK)) {
+	if (!s.open(3000, SOCK_NONBLOCK)) {
 		fprintf(stderr, "Failed to create or bind socket\n");
 		exit(1);
 	}
@@ -76,14 +76,14 @@ int main(int argc, char const *argv[])
 			while (clients.size() < N) {
 				char hello_world[100];
 
-				int len = s.Receive(client_addr, hello_world, 100);
+				int len = s.receive(client_addr, hello_world, 100);
 				hello_world[len] = '\0';
 
 				if (len > 0) {
 					if (std::string("HELLO").compare(std::string(hello_world, len)) == 0) {
 						bool known = std::find(clients.begin(), clients.end(), client_addr) != clients.end();
 
-						s.Send(client_addr, "HELLO", 5);
+						s.send(client_addr, "HELLO", 5);
 						if (!known)
 							clients.push_back(client_addr);
 						fprintf(stderr, "\r> registering clients [%d/%d]", clients.size(), N);
@@ -101,7 +101,7 @@ int main(int argc, char const *argv[])
 			int started = 0;
 			fprintf(stderr, "> starting clients [%d/%d]", started, N);
 			for (auto & client : clients) {
-				while (!s.Send(client, "START", 5))
+				while (!s.send(client, "START", 5))
 					wait(100);
 				fprintf(stderr, "\r> starting clients [%d/%d]", ++started, N);
 			}
@@ -117,13 +117,13 @@ int main(int argc, char const *argv[])
 
 			do {
 				unsigned int data;
-				int len = s.Receive(client_addr, &data, 4);
+				int len = s.receive(client_addr, &data, 4);
 				if (len == 4) {
 					unsigned int pkt = ntohl(data);
 					// fprintf(stderr, "> got %d from %d.%d.%d.%d:%d\n", pkt,
-					// 	client_addr.GetA(), client_addr.GetB(),
-					// 	client_addr.GetC(), client_addr.GetD(),
-					// 	client_addr.GetPort());
+					// 	client_addr.a(), client_addr.b(),
+					// 	client_addr.c(), client_addr.d(),
+					// 	client_addr.port());
 				}
 
 				auto now = high_resolution_clock::now();
@@ -134,7 +134,7 @@ int main(int argc, char const *argv[])
 		fprintf(stderr, "// DUMP PHASE\n");
 		char hello_world[100];
 		int ignored_pkts = 0;
-		while (s.Receive(client_addr, hello_world, 100) > 0) {
+		while (s.receive(client_addr, hello_world, 100) > 0) {
 			ignored_pkts++;
 			wait(100*1000);
 		}

@@ -5,64 +5,42 @@
 #include <netinet/in.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <cinttypes>
 
 namespace net
 {
+	using u8 = std::uint8_t;
+	using u16 = std::uint16_t;
+	using u32 = std::uint32_t;
+
 	class Address
 	{
 	public:
 
-		Address()
-		{
-			address = 0;
-			port = 0;
-		}
+		Address() : _addr(0), _port(0) {}
 
-		Address( unsigned char a, unsigned char b, unsigned char c, unsigned char d, unsigned short port )
-		{
-			this->address = ( a << 24 ) | ( b << 16 ) | ( c << 8 ) | d;
-			this->port = port;
-		}
+		Address(u8 a, u8 b, u8 c, u8 d, u16 port)
+			: _addr((a << 24) | (b << 16) | (c << 8) | d)
+			, _port(port)
+		{}
 
-		Address( unsigned int address, unsigned short port )
-		{
-			this->address = address;
-			this->port = port;
-		}
+		Address( u32 address, u16 port )
+			: _addr(address)
+			, _port(port)
+		{}
 
-		unsigned int GetAddress() const
-		{
-			return address;
-		}
+		u32 addr() const { return _addr; }
+		u16 port() const { return _port; }
 
-		unsigned char GetA() const
-		{
-			return ( unsigned char ) ( address >> 24 );
-		}
+		u8 a() const { return static_cast<u8>(_addr >> 24); }
+		u8 b() const { return static_cast<u8>(_addr >> 16); }
+		u8 c() const { return static_cast<u8>(_addr >>  8); }
+		u8 d() const { return static_cast<u8>(_addr      ); }
 
-		unsigned char GetB() const
-		{
-			return ( unsigned char ) ( address >> 16 );
-		}
-
-		unsigned char GetC() const
-		{
-			return ( unsigned char ) ( address >> 8 );
-		}
-
-		unsigned char GetD() const
-		{
-			return ( unsigned char ) ( address );
-		}
-
-		unsigned short GetPort() const
-		{
-			return port;
-		}
 
 		bool operator == ( const Address & other ) const
 		{
-			return address == other.address && port == other.port;
+			return _addr == other._addr && _port == other._port;
 		}
 
 		bool operator != ( const Address & other ) const
@@ -72,38 +50,32 @@ namespace net
 
 		bool operator < ( const Address & other ) const
 		{
-			// note: this is so we can use address as a key in std::map
-			if ( address < other.address )
+			// note: this is so we can use _addr as a key in std::map
+			if ( _addr < other._addr )
 				return true;
-			if ( address > other.address )
+			if ( _addr > other._addr )
 				return false;
 			else
-				return port < other.port;
+				return _port < other._port;
 		}
 
 	private:
 
-		unsigned int address;
-		unsigned short port;
+		u32 _addr;
+		u16 _port;
 	};
 
 	class Socket
 	{
 	public:
 
-		Socket()
-		{
-			soc = 0;
-		}
+		Socket() { soc = 0; }
 
-		~Socket()
-		{
-			Close();
-		}
+		~Socket() { close(); }
 
-		bool Open( unsigned short port, int flags )
+		bool open( u16 port, int flags )
 		{
-			assert( !IsOpen() );
+			assert( !is_open() );
 			#if defined(__APPLE__)
 			bool want_nonblock = flags == 1;
 			flags = 0;
@@ -124,100 +96,72 @@ namespace net
 			sockaddr_in address;
 			address.sin_family = AF_INET;
 			address.sin_addr.s_addr = INADDR_ANY;
-			address.sin_port = htons( (unsigned short) port );
+			address.sin_port = htons(port);
 
 			if (bind(soc, (const sockaddr*) &address, sizeof(sockaddr_in)) < 0) {
-				Close();
+				close();
 				return false;
 			}
 
 			return true;
 		}
 
-		bool Open(unsigned short port) {
-			return Open(port, 0);
+		bool open(u16 port)
+		{
+			return open(port, 0);
 		}
 
-		// bool SetBlocking()
-		// {
-		// 	int flags = fcntl(socket, F_GETFL);
-		// 	if (fcntl(socket, F_SETFL, flags & (~O_NONBLOCK)) == -1)
-		// 	{
-		// 		printf( "failed to set blocking socket\n" );
-		// 		Close();
-		// 		return false;
-		// 	}
-		// 	return true;
-		// }
-
-		// bool SetNonBlocking()
-		// {
-		// 	int flags = fcntl(socket, F_GETFL);
-		// 	flags = flags | O_NONBLOCK;
-		// 	if (fcntl(socket, F_SETFL, &flags) == -1)
-		// 	{
-		// 		printf( "failed to set non-blocking socket\n" );
-		// 		Close();
-		// 		return false;
-		// 	}
-		// 	return true;
-		// }
-
-		void Close()
+		void close()
 		{
-			if ( soc != 0 )
-			{
-				close( soc );
+			if (soc != 0) {
+				::close(soc);
 				soc = 0;
 			}
 		}
 
-		bool IsOpen() const
-		{
-			return soc != 0;
-		}
+		bool is_open() const { return soc != 0; }
 
-		bool Send( const Address & destination, const void * data, int size )
+		bool send(const Address & destination, const void * data, int size)
 		{
-			assert( data );
-			assert( size > 0 );
+			assert(data    );
+			assert(size > 0);
 
-			if ( soc == 0 )
+			if (soc == 0)
 				return false;
 
-			assert( destination.GetAddress() != 0 );
-			assert( destination.GetPort() != 0 );
+			assert(destination.addr() != 0);
+			assert(destination.port() != 0);
 
 			sockaddr_in address;
 			address.sin_family = AF_INET;
-			address.sin_addr.s_addr = htonl( destination.GetAddress() );
-			address.sin_port = htons( (unsigned short) destination.GetPort() );
+			address.sin_addr.s_addr = htonl(destination.addr());
+			address.sin_port = htons(destination.port());
 
-			int sent_bytes = sendto( soc, (const char*)data, size, 0, (sockaddr*)&address, sizeof(sockaddr_in) );
+			int sent_bytes = sendto(soc, (const char*)data, size, 0, (sockaddr*)&address, sizeof(sockaddr_in));
 
 			return sent_bytes == size;
 		}
 
-		int Receive( Address & sender, void * data, int size )
+		int receive(Address & sender, void * data, int size)
 		{
-			assert( data );
-			assert( size > 0 );
+			assert(data);
+			assert(size > 0);
 
-			if ( soc == 0 )
-				return false;
+			if (soc == 0)
+				return 0;
 
 			sockaddr_in from;
 			socklen_t fromLength = sizeof( from );
 
 			int received_bytes = recvfrom( soc, (char*)data, size, 0, (sockaddr*)&from, &fromLength );
 
-			if ( received_bytes <= 0 )
+			if (received_bytes <= 0)
 				return 0;
 
-			unsigned int address = ntohl( from.sin_addr.s_addr );
-			unsigned short port = ntohs( from.sin_port );
+			u32 address = ntohl(from.sin_addr.s_addr);
+			u16 port = ntohs(from.sin_port);
 
-			sender = Address( address, port );
+			sender = Address(address, port);
 
 			return received_bytes;
 		}

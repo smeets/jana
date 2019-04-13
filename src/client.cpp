@@ -27,7 +27,7 @@ bool expect_message(net::Socket & sock, const std::string & want)
 {
 	static char DATA[100];
 	net::Address server;
-	int len = sock.Receive(server, DATA, 100);
+	int len = sock.receive(server, DATA, 100);
 	DATA[len] = '\0';
 
 	if (len > 0) {
@@ -83,40 +83,44 @@ int main(int argc, char const *argv[])
 	}
 
 	net::Socket heartbeat;
-	if (!heartbeat.Open(0, SOCK_NONBLOCK)) {
+	if (!heartbeat.open(0, SOCK_NONBLOCK)) {
 		fprintf(stderr, "Failed to create or bind heartbeat socket\n");
 		exit(1);
 	}
 
 	net::Socket client;
-	if (!client.Open(0)) {
+	if (!client.open(0)) {
 		fprintf(stderr, "Failed to create or bind client socket\n");
 		exit(1);
 	}
 
-	std::vector<double> channel_access_delay;
+	std::vector<unsigned long> channel_access_delay;
 	std::vector<bool> packet_transmit_status;
 	channel_access_delay.reserve(100000);
 	packet_transmit_status.reserve(100000);
+
 	for (;;) {
 		/* Setup phase */
 		printf("// INIT PHASE\n");
-		heartbeat.Send(server_addr, "HELLO", 5);
-		while (!expect_message(heartbeat, "HELLO")) {
-			{
-				using namespace std::chrono;
+		{
+			using namespace std::chrono;
+			unsigned int ctr = 0;
+			while (!expect_message(heartbeat, "HELLO")) {
 				auto now = system_clock::now();
 				auto dtn = now.time_since_epoch();
 				auto sec = dtn.count() * system_clock::period::num / system_clock::period::den;
 				if (sec % 5 == 0) {
-					bool ok = heartbeat.Send(server_addr, "HELLO", 5);
-					printf("> sending HELLO to %d.%d.%d.%d:%d [%s]\n",
-						server_addr.GetA(), server_addr.GetB(),
-						server_addr.GetC(), server_addr.GetD(),
-						server_addr.GetPort(), ok ? "ok" : "??");
+					heartbeat.send(server_addr, "HELLO", 5);
+					fprintf(stderr, "\r> sending HELLO to %d.%d.%d.%d:%d [%u]",
+						server_addr.a(), server_addr.b(),
+						server_addr.c(), server_addr.d(),
+						server_addr.port(),
+						++ctr);
 				}
+				wait(1000*1000);
 			}
-			wait(1000*1000);
+			if (ctr > 0)
+				fprintf(stderr, "\n");
 		}
 
 		/* Ready phase - wait for go signal */
@@ -144,7 +148,7 @@ int main(int argc, char const *argv[])
 		printf("// WORK PHASE\n");
 		{
 			using namespace std::chrono;
-			auto start = high_resolution_clock::now();
+			auto start = steady_clock::now();
 			duration<double> time_span;
 
 			unsigned int pkt = 0;
@@ -152,17 +156,19 @@ int main(int argc, char const *argv[])
 			do {
 				auto data = htonl(pkt);
 
-				auto t1 = high_resolution_clock::now();
-				bool transmitted = client.Send(server_addr, &data, 4);
-				auto t2 = high_resolution_clock::now();
-				auto cal_d = duration_cast<duration<double>>(t2-t1);
+				auto t1 = steady_clock::now();
+				bool transmitted = client.send(server_addr, &data, 4);
+				auto t2 = steady_clock::now();
+				auto delay = duration_cast<nanoseconds>(t2 - t1).count();
 
-				channel_access_delay.emplace_back(cal_d.count());
-				packet_transmit_status.emplace_back(transmitted);
+				// std::cout << delay << " ns" << std::endl;
+
+				channel_access_delay.push_back(delay);
+				packet_transmit_status.push_back(transmitted);
 
 				pkt += 1;
 
-				auto now = high_resolution_clock::now();
+				auto now = steady_clock::now();
 				time_span = duration_cast<duration<double>>(now - start);
 			} while (time_span.count() < 30);
 		};
@@ -170,14 +176,13 @@ int main(int argc, char const *argv[])
 		/* Cleanup phase - print data */
 		printf("// DUMP PHASE\n");
 
-		auto [cal_min, cal_max] = std::minmax_element(channel_access_delay.begin(), channel_access_delay.end());
+		const auto [min_delay, max_delay] = std::minmax_element(channel_access_delay.begin(), channel_access_delay.end());
 		auto good = std::count(packet_transmit_status.begin(), packet_transmit_status.end(), true);
 		auto fail = packet_transmit_status.size() - good;
 		auto bw = (4 * packet_transmit_status.size())/30.0f;
-
-		printf("CAD: max=%lf, min=%lf\n", cal_max, cal_min);
-		printf("PTS: good=%d, fail=%d\n", good, fail);
-		printf("BW: %f\n", bw);
+		printf("channel access delay min=%lu us, max=%lu us\n", (*min_delay)/1000, (*max_delay)/1000);
+		printf("transmission status good=%lu, fail=%lu\n", good, fail);
+		printf("estimated bandwidth %f\n", bw);
 
 		channel_access_delay.clear();
 		packet_transmit_status.clear();
