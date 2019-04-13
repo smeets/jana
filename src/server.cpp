@@ -72,7 +72,7 @@ int main(int argc, char const *argv[])
 
 		fprintf(stderr, "// INIT PHASE\n");
 		{
-			fprintf(stderr, "> registering clients ... [%d/%d]\r", clients.size(), N);
+			fprintf(stderr, "> registering clients [%d/%d]", clients.size(), N);
 			while (clients.size() < N) {
 				char hello_world[100];
 
@@ -88,22 +88,22 @@ int main(int argc, char const *argv[])
 
 						clients.push_back(client_addr);
 						s.Send(client_addr, "HELLO", 5);
-						fprintf(stderr, "> waiting for clients ... [%d/%d]\r", clients.size(), N);
+						fprintf(stderr, "\r> registering clients [%d/%d]", clients.size(), N);
 						continue;
 					}
 				}
 			}
-			fprintf(stderr, "> registering clients ... [%d/%d] OK\n", clients.size(), N);
+			fprintf(stderr, "\n");
 		}
 
 		fprintf(stderr, "// WAIT PHASE\n");
 		{
 			int late = 0;
-			fprintf(stderr, "> consuming late HELLO ... [%d]\r", late);
+			fprintf(stderr, "> consuming late HELLO ... [%d]", late);
 			while (expect_message(s, "HELLO")) {
-				fprintf(stderr, "> consuming late HELLO ... [%d]\r", ++late);
+				fprintf(stderr, "\r> consuming late HELLO ... [%d]", ++late);
 			}
-			fprintf(stderr, "> consuming late HELLO ... [%d] OK\n", late);
+			fprintf(stderr, "\n", late);
 		}
 
 		wait(1000*1000);
