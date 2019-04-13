@@ -111,7 +111,7 @@ int main(int argc, char const *argv[])
 
 		printf("// WAIT PHASE\n");
 		wait(1000*1000);
-		for (auto & client : clients) {
+		for (auto client : clients) {
 			bool ok = s.Send(client_addr, "START", 5);
 			printf("> sending START to %d.%d.%d.%d:%d [%s]\n",
 						client.GetA(), client.GetB(),
