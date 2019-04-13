@@ -104,6 +104,10 @@ namespace net
 		bool Open( unsigned short port, int flags )
 		{
 			assert( !IsOpen() );
+			#if defined(__APPLE__)
+			bool want_nonblock = flags == 1;
+			flags = 0;
+			#endif
 
 			soc = ::socket( AF_INET, SOCK_DGRAM | flags, IPPROTO_UDP );
 
@@ -111,6 +115,11 @@ namespace net
 				soc = 0;
 				return false;
 			}
+
+			#if defined(__APPLE__)
+			if (want_nonblock)
+				fcntl(soc, F_SETFL, O_NONBLOCK);
+			#endif
 
 			sockaddr_in address;
 			address.sin_family = AF_INET;

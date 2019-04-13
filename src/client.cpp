@@ -15,6 +15,10 @@
 
 #include <unistd.h>
 
+#if defined(__APPLE__)
+#define SOCK_NONBLOCK 1
+#endif
+
 #include "net.h"
 
 void wait(int us) { usleep(us); }
@@ -71,6 +75,7 @@ int main(int argc, char const *argv[])
 			if (!parse_addr(argv[2], server_addr)) {
 				fprintf(stderr, "Malformed ip address: %s\n", argv[2]);
 				exit(1);
+			} else {
 			}
 		}
 	}
@@ -102,10 +107,11 @@ int main(int argc, char const *argv[])
 				auto dtn = now.time_since_epoch();
 				auto sec = dtn.count() * system_clock::period::num / system_clock::period::den;
 				if (sec % 5 == 0) {
-					printf("> sending HELLO to %d.%d.%d.%d\n",
+					bool ok = heartbeat.Send(server_addr, "HELLO", 5);
+					printf("> sending HELLO to %d.%d.%d.%d:%d [%s]\n",
 						server_addr.GetA(), server_addr.GetB(),
-						server_addr.GetC(), server_addr.GetD());
-					heartbeat.Send(server_addr, "HELLO", 5);
+						server_addr.GetC(), server_addr.GetD(), 
+						server_addr.GetPort(), ok ? "ok" : "??");
 				}
 			}
 			wait(1000*1000);

@@ -14,6 +14,11 @@
 // #include <functional>
 
 #include "net.h"
+
+#if defined(__APPLE__)
+#define SOCK_NONBLOCK 1
+#endif
+
 #include <unistd.h>
 
 void wait(int us) { usleep(us); }

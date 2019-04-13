@@ -2,7 +2,7 @@
 JANA_CC=$(CXX)
 JANA_LD=$(CXX)
 
-FINAL_CXX_FLAGS=-std=c++11
+FINAL_CXX_FLAGS=-std=c++14
 
 JANA_CLI_NAME=jana-cli
 JANA_CLI_OBJ=client.o
