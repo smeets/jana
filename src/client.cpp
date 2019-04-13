@@ -121,8 +121,23 @@ int main(int argc, char const *argv[])
 
 		/* Ready phase - wait for go signal */
 		printf("// WAIT PHASE\n");
-		while (!expect_message(heartbeat, "START")) {
-			wait(100*1000);
+		{
+			using namespace std::chrono;
+			auto start = system_clock::now();
+			auto time_span = duration_cast<duration<double>>(start - start);
+
+			while (!expect_message(heartbeat, "START") &&
+					time_span.count() < 10) {
+				wait(100*1000);
+
+				auto now = system_clock::now();
+				time_span = duration_cast<duration<double>>(now - start);
+			}
+
+			if (time_span.count() >= 10) {
+				fprintf(stderr, "> did not receive START within 10 s, resetting\n");
+				continue;
+			}
 		}
 
 		/* Main phase - pump it! */
