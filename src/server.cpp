@@ -5,12 +5,12 @@
 #include <string>
 #include <vector>
 #include <chrono>
+#include <algorithm>
 
 // #include <vector>
 // #include <map>
 // #include <stack>
 // #include <list>
-// #include <algorithm>
 // #include <functional>
 
 #include "net.h"
@@ -71,7 +71,7 @@ int main(int argc, char const *argv[])
 		net::Address client_addr;
 
 		printf("// INIT PHASE\n");
-		printf("> waiting for clients ...\n", N);
+		printf("> waiting for clients ...\n");
 		int ignored = 0;
 		while (clients.size() < N) {
 			char hello_world[100];
@@ -81,6 +81,15 @@ int main(int argc, char const *argv[])
 
 			if (len > 0) {
 				if (std::string("HELLO").compare(std::string(hello_world, len)) == 0) {
+					bool known = std::find(clients.begin(), clients.end(), client_addr) != clients.end();
+					if (known) {
+						printf("> ignoring HELP from known client %d.%d.%d.%d:%d\n",
+						client_addr.GetA(), client_addr.GetB(),
+						client_addr.GetC(), client_addr.GetD(),
+						client_addr.GetPort());
+						continue;
+					}
+
 					clients.push_back(client_addr);
 					printf("> client %d/%d %d.%d.%d.%d:%d\n",
 						clients.size(), N,
@@ -88,9 +97,10 @@ int main(int argc, char const *argv[])
 						client_addr.GetC(), client_addr.GetD(),
 						client_addr.GetPort());
 					s.Send(client_addr, "HELLO", 5);
-				} else {
-					ignored += 1;
+					continue;
 				}
+
+				ignored += 1;
 			}
 		}
 
