@@ -143,7 +143,6 @@ int main(int argc, char const *argv[])
 				channel_access_delay.emplace_back(cal_d.count());
 				packet_transmit_status.emplace_back(transmitted);
 
-				wait(1000);
 				pkt += 1;
 
 				auto now = high_resolution_clock::now();
