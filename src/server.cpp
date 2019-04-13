@@ -70,56 +70,53 @@ int main(int argc, char const *argv[])
 	for (;;) {
 		net::Address client_addr;
 
-		printf("// INIT PHASE\n");
-		printf("> waiting for clients ...\n");
-		int ignored = 0;
-		while (clients.size() < N) {
-			char hello_world[100];
+		fprintf(stderr, "// INIT PHASE\n");
+		{
+			fprintf(stderr, "> registering clients ... [%d/%d]\r", clients.size(), N);
+			while (clients.size() < N) {
+				char hello_world[100];
 
-			int len = s.Receive(client_addr, hello_world, 100);
-			hello_world[len] = '\0';
+				int len = s.Receive(client_addr, hello_world, 100);
+				hello_world[len] = '\0';
 
-			if (len > 0) {
-				if (std::string("HELLO").compare(std::string(hello_world, len)) == 0) {
-					bool known = std::find(clients.begin(), clients.end(), client_addr) != clients.end();
-					if (known) {
-						printf("> ignoring HELP from known client %d.%d.%d.%d:%d\n",
-						client_addr.GetA(), client_addr.GetB(),
-						client_addr.GetC(), client_addr.GetD(),
-						client_addr.GetPort());
+				if (len > 0) {
+					if (std::string("HELLO").compare(std::string(hello_world, len)) == 0) {
+						bool known = std::find(clients.begin(), clients.end(), client_addr) != clients.end();
+						if (known) {
+							continue;
+						}
+
+						clients.push_back(client_addr);
+						s.Send(client_addr, "HELLO", 5);
+						fprintf(stderr, "> waiting for clients ... [%d/%d]\r", clients.size(), N);
 						continue;
 					}
-
-					clients.push_back(client_addr);
-					printf("> client %d/%d %d.%d.%d.%d:%d\n",
-						clients.size(), N,
-						client_addr.GetA(), client_addr.GetB(),
-						client_addr.GetC(), client_addr.GetD(),
-						client_addr.GetPort());
-					s.Send(client_addr, "HELLO", 5);
-					continue;
 				}
-
-				ignored += 1;
 			}
+			fprintf(stderr, "> registering clients ... [%d/%d] OK\n", clients.size(), N);
 		}
 
-		int hellos = 0;
-		while (expect_message(s, "HELLO")) hellos++;
-		printf("> consumed %d extra HELLO\n", hellos);
-		printf("> ignored %d non-HELLO packet(s)\n", ignored);
+		fprintf(stderr, "// WAIT PHASE\n");
+		{
+			int late = 0;
+			fprintf(stderr, "> consuming late HELLO ... [%d]\r", late);
+			while (expect_message(s, "HELLO")) {
+				fprintf(stderr, "> consuming late HELLO ... [%d]\r", ++late);
+			}
+			fprintf(stderr, "> consuming late HELLO ... [%d] OK\n", late);
+		}
 
-		printf("// WAIT PHASE\n");
 		wait(1000*1000);
-		for (auto client : clients) {
+		for (auto & client : clients) {
 			bool ok = s.Send(client, "START", 5);
-			printf("> sending START to %d.%d.%d.%d:%d [%s]\n",
+			fprintf(stderr, "> sending START to %d.%d.%d.%d:%d %s\n",
 						client.GetA(), client.GetB(),
 						client.GetC(), client.GetD(),
-						client.GetPort(), ok ? "ok" : "??");
+						client.GetPort(),
+						ok ? "OK" : "FAIL");
 		}
 
-		printf("// WORK PHASE\n");
+		fprintf(stderr, "// WORK PHASE\n");
 		{
 			using namespace std::chrono;
 			auto start = high_resolution_clock::now();
@@ -131,7 +128,7 @@ int main(int argc, char const *argv[])
 				int len = s.Receive(client_addr, &data, 4);
 				if (len == 4) {
 					unsigned int pkt = ntohl(data);
-					// printf("> got %d from %d.%d.%d.%d:%d\n", pkt,
+					// fprintf(stderr, "> got %d from %d.%d.%d.%d:%d\n", pkt,
 					// 	client_addr.GetA(), client_addr.GetB(),
 					// 	client_addr.GetC(), client_addr.GetD(),
 					// 	client_addr.GetPort());
@@ -142,14 +139,14 @@ int main(int argc, char const *argv[])
 			} while (time_span.count() < 30);
 		}
 
-		printf("// DUMP PHASE\n");
+		fprintf(stderr, "// DUMP PHASE\n");
 		char hello_world[100];
 		int ignored_pkts = 0;
 		while (s.Receive(client_addr, hello_world, 100) > 0) {
 			ignored_pkts++;
 			wait(100*1000);
 		}
-		printf("> consumed %d extra packets\n", ignored_pkts);
+		fprintf(stderr, "> consumed %d extra packets\n", ignored_pkts);
 		clients.clear();
 	}
 
