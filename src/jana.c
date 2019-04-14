@@ -121,15 +121,20 @@ uint32_t compute_mph_k(struct sockaddr_in *clients, uint32_t N)
 	uint32_t *hashes = calloc(N, sizeof(uint32_t));
 	uint32_t *table  = calloc(N, sizeof(uint32_t));
 
-	for (int i = 0; i < N; ++i) {
-		hashes[i] = chash(clients + i);
+	if (hashes == 0 || table == 0) {
+		fprintf(stderr, "compute_mph_k: out-of-memory\n");
+		exit(-1);
 	}
 
-	for (uint32_t k = 1; k < 10000000; ++k) {
+	for (uint32_t i = 0; i < N; ++i) {
+		hashes[i] = chash(clients + i);
+	}
+	for (uint32_t k = 1; k != 0; ++k) {
 		bool found = true;
 
-		for (int i = 0; i < 4; ++i) {
-			uint32_t f = (k * hashes[i] % 479001599) % 4;
+		for (uint32_t i = 0; i < N; ++i) {
+			uint32_t f = (k * hashes[i] % 479001599) % N;
+
 			if (table[f] == 0) {
 				table[f] = hashes[i];
 			} else {
@@ -143,12 +148,12 @@ uint32_t compute_mph_k(struct sockaddr_in *clients, uint32_t N)
 			free(table);
 			return k;
 		}
-		memset(table, 0, 4 * sizeof(uint32_t));
+		memset(table, 0, N * sizeof(uint32_t));
 	}
 
+	fprintf(stderr, "compute_mph_k: not possible\n");
 	free(hashes);
 	free(table);
-	fprintf(stderr, "compute_mph_k: not possible\n");
 	exit(1);
 }
 
