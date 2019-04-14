@@ -42,8 +42,6 @@ uint32_t chash(struct sockaddr_in *sa)
 	return sa->sin_addr.s_addr ^ (sa->sin_port * 59);
 }
 
-void wait(int us) { usleep(us); }
-
 enum jana_mode { jana_decide, jana_client, jana_server };
 
 struct config
@@ -182,7 +180,7 @@ init_phase:
 				sendto(heartfd, MSG, strlen(MSG)+1, 0, (struct sockaddr*)&cfg->addr, sizeof(struct sockaddr_in));
 			}
 
-			wait(120*1000);
+			usleep(120*1000);
 		} while (!read_message(heartfd, "HELLO", 0));
 		fprintf(stderr, "\r> registered on server\n");
 	}
@@ -198,7 +196,7 @@ init_phase:
 			fprintf(stderr, "\r> waiting to start ");
 			fprintf(stderr, "%s", SPINNER[i++ % 8]);
 
-			wait(120*1000);
+			usleep(120*1000);
 		} while (!read_message(heartfd, "START", 0));
 		fprintf(stderr, "\r> got the start signal\n");
 	}
@@ -284,11 +282,11 @@ init_phase:
 				}
 			}
 
-			wait(100*1000);
+			usleep(100*1000);
 		}
 	}
 
-	wait(500*1000);
+	usleep(500*1000);
 	fprintf(stderr, "> computing perfect hash");
 	mphk = compute_mph_k(clients, registered);
 	fprintf(stderr, "\r> g(x) = (%u * x mod %u) mod %u\n", mphk, 479001599, registered);
@@ -327,7 +325,7 @@ init_phase:
 		fprintf(stderr, "\r> network test completed\n");
 	}
 
-	wait(500*1000);
+	usleep(500*1000);
 
 	{
 		for (int i = 0; i < registered; ++i) {
