@@ -30,14 +30,6 @@
 	typedef int socklen_t;
 	#define INET_ADDRSTRLEN  (16)
 
-	#ifndef _CRT_NO_TIME_T
-	struct timespec
-	{
-	time_t tv_sec; // Seconds - >= 0
-	long tv_nsec; // Nanoseconds - [0, 999999999]
-	};
-	#endif
-
 #else
 
 	#include <unistd.h>
@@ -75,9 +67,21 @@ void usage() {
     exit(1);
 }
 
+/**
+ * hash a client's ip and port: ADDR xor (PORT * 59)
+ *
+ * 01234567 01234567 01234567 01234567 ADDR
+ * 00000000 00000000 01234567 01234567 PORT
+ *
+ * XOR is decent but there are better options.
+ * 59 seems to be a good prime number for this case.
+ */
 uint32_t chash(struct sockaddr_in *sa)
 {
-	return sa->sin_addr.s_addr ^ (sa->sin_port * 59);
+	/* promote port to 32 bits */
+	uint32_t addr = sa->sin_addr.s_addr;
+	uint32_t port = sa->sin_port;
+	return addr ^ (port * 59);
 }
 
 enum jana_mode { jana_decide, jana_client, jana_server };
@@ -93,6 +97,9 @@ struct config
 	const char *logfile;
 };
 
+/**
+ * xclock - wrapper around windows qpc and unix gettime apis.
+ */
 struct xclock
 {
 #if PLATFORM == PLATFORM_WIN
@@ -127,8 +134,6 @@ void xclock_init(struct xclock *c)
     xclock_mark(c);
 }
 
-
-
 uint64_t xclock_us(struct xclock *c)
 {
 #if PLATFORM == PLATFORM_WIN
@@ -157,16 +162,24 @@ double xclock_elapsed(struct xclock *c)
 #endif
 }
 
+
+/**
+ * poor man's socket wrapper
+ */
+void close_socket(int sockfd)
+{
+#if PLATFORM == PLATFORM_WIN
+		closesocket(sockfd);
+#else
+		close(sockfd);
+#endif
+}
+
 int init_socket(struct sockaddr_in *addr, bool nonblock)
 {
 	int sockfd;
 
-#ifdef SOCK_NONBLOCK
-	int flags = nonblock ? SOCK_NONBLOCK : 0;
-	sockfd = socket(AF_INET, SOCK_DGRAM | flags, IPPROTO_UDP);
-#else
 	sockfd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-#endif
 
 	if (sockfd <= 0) {
 		perror("init_socket: failed to create socket");
@@ -175,31 +188,18 @@ int init_socket(struct sockaddr_in *addr, bool nonblock)
 
 	if (bind(sockfd, (const struct sockaddr*)addr, sizeof(struct sockaddr_in)) < 0) {
 		perror("init_socket: failed to bind socket");
-#if PLATFORM == PLATFORM_WIN
-		closesocket(sockfd);
-#else
-		close(sockfd);
-#endif
+		close_socket(sockfd);
 		exit(1);
 	}
 
-#ifndef SOCK_NONBLOCK
 	if (nonblock) {
 	#if PLATFORM == PLATFORM_WIN
-		DWORD nonBlocking = 1;
-		if (ioctlsocket(sockfd, FIONBIO, &nonBlocking) != NO_ERROR) {
-			perror("ioctlsocket failed");
-#if PLATFORM == PLATFORM_WIN
-			closesocket(sockfd);
-#else
-			close(sockfd);
-#endif
-		}
+		DWORD nonBlock = 1;
+		ioctlsocket(sockfd, FIONBIO, &nonBlock);
 	#else
 		fcntl(sockfd, F_SETFL, O_NONBLOCK);
 	#endif
 	}
-#endif
 
 	return sockfd;
 }
@@ -341,7 +341,7 @@ init_phase:
 			uint32_t data = htonl(++packet);
 
 			xclock_mark(&tp_now);
-			sendto(sockfd, &data, sizeof(uint32_t), 0,
+			sendto(sockfd, (const char *)&data, sizeof(uint32_t), 0,
 				(struct sockaddr*)(&cfg->addr),
 				sizeof(struct sockaddr_in));
 			uint64_t us = xclock_us(&tp_now);
@@ -358,19 +358,15 @@ init_phase:
 		goto init_phase;
 
 cleanup:
-#if PLATFORM == PLATFORM_WIN
-	closesocket(sockfd);
-	closesocket(heartfd);
-#else
-	close(heartfd);
-	close(sockfd);
-#endif
+	close_socket(sockfd);
+	close_socket(heartfd);
 }
 
 void run_server(struct config *cfg)
 {
+	static char ip[INET_ADDRSTRLEN];
+
 	int sockfd = init_socket(&cfg->addr, true);
-	char ip[INET_ADDRSTRLEN];
 	inet_ntop(AF_INET, &(cfg->addr.sin_addr), ip, INET_ADDRSTRLEN);
 	printf("> using %s:%d\n", ip, ntohs(cfg->addr.sin_port));
 
@@ -436,7 +432,7 @@ init_phase:
 		xclock_init(&tp_start);
 		fprintf(stderr, "> running network test");
 		do {
-			int len = recvfrom(sockfd, &packet, sizeof(packet), 0, &addr, &fromlen);
+			int len = recvfrom(sockfd, (char*)&packet, sizeof(packet), 0, &addr, &fromlen);
 			if (len > 0) {
 				uint32_t x = chash((struct sockaddr_in *)&addr);
 				uint32_t i = (mphk * x % 479001599) % registered;
@@ -459,13 +455,13 @@ init_phase:
 	}
 
 	{
-		static uint8_t  data[100];
+		static char     data[100];
 		struct sockaddr addr;
 		int             len;
 		socklen_t       fromlen = sizeof addr;
 		uint32_t        consumed = 0;
 		do {
-			len = recvfrom(sockfd, &data, 100, 0, &addr, &fromlen);
+			len = recvfrom(sockfd, data, 100, 0, &addr, &fromlen);
 			if (len > 0) {
 				consumed++;
 			}
@@ -482,11 +478,7 @@ init_phase:
 cleanup:
 	free(counters);
 	free(clients);
-#if PLATFORM == PLATFORM_WIN
-	closesocket(sockfd);
-#else
-	close(sockfd);
-#endif
+	close_socket(sockfd);
 }
 
 void guard(const char *program, bool ensure, const char *msg)
