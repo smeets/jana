@@ -4,13 +4,51 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include <unistd.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <time.h>
+/* poor man's platform selector */
+#define PLATFORM_WIN  1
+#define PLATFORM_MAC  2
+#define PLATFORM_UNIX 3
+
+#if defined(_WIN32)
+#define PLATFORM PLATFORM_WIN
+#elif defined(__APPLE__)
+#define PLATFORM PLATFORM_MAC
+#else
+#define PLATFORM PLATFORM_UNIX
+#endif
+
+#if PLATFORM == PLATFORM_WIN
+	#include <winsock2.h>
+	#include <windows.h>
+	#pragma comment(lib, "ws2_32.lib")
+
+	void usleep(uint32_t us)
+	{
+		Sleep((int)(us/1000));
+	}
+
+	typedef int socklen_t;
+	#define INET_ADDRSTRLEN  (16)
+
+	#ifndef _CRT_NO_TIME_T
+	struct timespec
+	{
+	time_t tv_sec; // Seconds - >= 0
+	long tv_nsec; // Nanoseconds - [0, 999999999]
+	};
+	#endif
+
+#else
+
+	#include <unistd.h>
+	#include <sys/socket.h>
+	#include <arpa/inet.h>
+	#include <netinet/in.h>
+	#include <fcntl.h>
+	#include <unistd.h>
+	#include <time.h>
+
+#endif
 
 void usage() {
     fprintf(stderr, "Usage: jana [-s clients|-c host] [options]\n");
@@ -33,7 +71,7 @@ void usage() {
     fprintf(stderr, " expressing distribution functions:\n");
     fprintf(stderr, "  exp(a)         F(x) = 1 - e^{ax}\n");
     fprintf(stderr, "\n");
-    fprintf(stderr, "Built " __DATE__ " " __TIME__ " using gcc " __VERSION__ "\n");
+    fprintf(stderr, "Built " __DATE__ " " __TIME__ "\n");
     exit(1);
 }
 
@@ -55,6 +93,70 @@ struct config
 	const char *logfile;
 };
 
+struct xclock
+{
+#if PLATFORM == PLATFORM_WIN
+	double freq;
+	int64_t ctr;
+#else
+	struct timespec tp;
+#endif
+};
+
+void xclock_mark(struct xclock *c)
+{
+#if PLATFORM == PLATFORM_WIN
+	LARGE_INTEGER li;
+    QueryPerformanceCounter(&li);
+    c->ctr = li.QuadPart;
+#else
+	clock_gettime(CLOCK_MONOTONIC, &c->tp);
+#endif
+}
+
+void xclock_init(struct xclock *c)
+{
+#if PLATFORM == PLATFORM_WIN
+	LARGE_INTEGER li;
+    if (!QueryPerformanceFrequency(&li)) {
+    	fprintf(stderr, "xclock_init: QueryPerformanceFrequency error\n");
+    	exit(1);
+    }
+    c->freq = (double)li.QuadPart;
+#endif
+    xclock_mark(c);
+}
+
+
+
+uint64_t xclock_us(struct xclock *c)
+{
+#if PLATFORM == PLATFORM_WIN
+	LARGE_INTEGER li;
+    QueryPerformanceCounter(&li);
+	return (uint64_t)(li.QuadPart - c->ctr) * 1000000.0 / c->freq;
+#else
+	struct timespec now;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return (uint64_t)(now.tv_sec - c->tp.tv_sec) * 1000000 +
+		(now.tv_nsec - c->tp.tv_nsec) / 1000;
+#endif
+}
+
+double xclock_elapsed(struct xclock *c)
+{
+#if PLATFORM == PLATFORM_WIN
+	LARGE_INTEGER li;
+    QueryPerformanceCounter(&li);
+	return (double)(li.QuadPart - c->ctr) / c->freq;
+#else
+	struct timespec now;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return (double)(now.tv_sec - c->tp.tv_sec) +
+		   (double)(now.tv_nsec - c->tp.tv_nsec) / 1000000000;
+#endif
+}
+
 int init_socket(struct sockaddr_in *addr, bool nonblock)
 {
 	int sockfd;
@@ -71,16 +173,33 @@ int init_socket(struct sockaddr_in *addr, bool nonblock)
 		exit(1);
 	}
 
-#ifndef SOCK_NONBLOCK
-	if (nonblock)
-		fcntl(sockfd, F_SETFL, O_NONBLOCK);
-#endif
-
 	if (bind(sockfd, (const struct sockaddr*)addr, sizeof(struct sockaddr_in)) < 0) {
 		perror("init_socket: failed to bind socket");
+#if PLATFORM == PLATFORM_WIN
+		closesocket(sockfd);
+#else
 		close(sockfd);
+#endif
 		exit(1);
 	}
+
+#ifndef SOCK_NONBLOCK
+	if (nonblock) {
+	#if PLATFORM == PLATFORM_WIN
+		DWORD nonBlocking = 1;
+		if (ioctlsocket(sockfd, FIONBIO, &nonBlocking) != NO_ERROR) {
+			perror("ioctlsocket failed");
+#if PLATFORM == PLATFORM_WIN
+			closesocket(sockfd);
+#else
+			close(sockfd);
+#endif
+		}
+	#else
+		fcntl(sockfd, F_SETFL, O_NONBLOCK);
+	#endif
+	}
+#endif
 
 	return sockfd;
 }
@@ -93,8 +212,9 @@ bool read_message(int sockfd, const char *want, struct sockaddr_in *from)
 
 	int len = recvfrom(sockfd, storage, 100, 0, &addr, &fromlen);
 
-	if (len <= 0)
+	if (len <= 0) {
 		return false;
+	}
 
 	if (from != 0)
 		*from = *((struct sockaddr_in*)&addr);
@@ -157,7 +277,7 @@ uint32_t compute_mph_k(struct sockaddr_in *clients, uint32_t N)
 	exit(1);
 }
 
-const char * SPINNER[] = { "/", "—", "\\", "|", "/", "—", "\\", "|" };
+const char * SPINNER[] = { "/", "-", "\\", "|", "/", "-", "\\", "|" };
 
 void run_client(struct config *cfg)
 {
@@ -207,26 +327,25 @@ init_phase:
 	}
 
 	{
-		struct timespec tp_start;
-		clock_gettime(CLOCK_MONOTONIC, &tp_start);
+		struct xclock tp_start;
+		struct xclock tp_now;
 
-		size_t seconds = 0;
 		uint32_t packet = 0;
 
+		xclock_init(&tp_start);
 		fprintf(stderr, "\r> running test ");
 		do {
-			struct timespec tp_now;
 			struct sockaddr addr;
 			socklen_t fromlen = sizeof addr;
 
 			uint32_t data = htonl(++packet);
+
+			xclock_mark(&tp_now);
 			sendto(sockfd, &data, sizeof(uint32_t), 0,
 				(struct sockaddr*)(&cfg->addr),
 				sizeof(struct sockaddr_in));
-
-			clock_gettime(CLOCK_MONOTONIC, &tp_now);
-			seconds = tp_now.tv_sec - tp_start.tv_sec;
-		} while (seconds < 10);
+			uint64_t us = xclock_us(&tp_now);
+		} while (xclock_elapsed(&tp_start) < 10);
 		fprintf(stderr, "\r> network test is done\n");
 	}
 
@@ -239,8 +358,13 @@ init_phase:
 		goto init_phase;
 
 cleanup:
+#if PLATFORM == PLATFORM_WIN
+	closesocket(sockfd);
+	closesocket(heartfd);
+#else
 	close(heartfd);
 	close(sockfd);
+#endif
 }
 
 void run_server(struct config *cfg)
@@ -304,29 +428,21 @@ init_phase:
 	}
 
 	{
+		struct xclock   tp_start;
+		uint32_t        packet;
+		struct sockaddr addr;
+		socklen_t       fromlen = sizeof addr;
+
+		xclock_init(&tp_start);
 		fprintf(stderr, "> running network test");
-		struct timespec tp_start;
-		clock_gettime(CLOCK_MONOTONIC, &tp_start);
-		size_t seconds = 0;
-
-		uint32_t packet;
-
 		do {
-			struct timespec tp_now;
-			struct sockaddr addr;
-			socklen_t fromlen = sizeof addr;
-
 			int len = recvfrom(sockfd, &packet, sizeof(packet), 0, &addr, &fromlen);
 			if (len > 0) {
 				uint32_t x = chash((struct sockaddr_in *)&addr);
 				uint32_t i = (mphk * x % 479001599) % registered;
 				counters[i] = ntohl(packet);
 			}
-
-			clock_gettime(CLOCK_MONOTONIC, &tp_now);
-			seconds = tp_now.tv_sec - tp_start.tv_sec;
-		} while (seconds < 10);
-
+		} while (xclock_elapsed(&tp_start) < 15);
 		fprintf(stderr, "\r> network test completed\n");
 	}
 
@@ -342,13 +458,35 @@ init_phase:
 		}
 	}
 
-	if (cfg->keepalive)
+	{
+		static uint8_t  data[100];
+		struct sockaddr addr;
+		int             len;
+		socklen_t       fromlen = sizeof addr;
+		uint32_t        consumed = 0;
+		do {
+			len = recvfrom(sockfd, &data, 100, 0, &addr, &fromlen);
+			if (len > 0) {
+				consumed++;
+			}
+		} while (len > 0);
+		printf("> consumed %u late packets\n", consumed);
+	}
+
+	if (cfg->keepalive) {
+		memset(clients, 0, registered * sizeof(struct sockaddr_in));
+		memset(counters, 0, registered * sizeof(uint32_t));
 		goto init_phase;
+	}
 
 cleanup:
 	free(counters);
 	free(clients);
+#if PLATFORM == PLATFORM_WIN
+	closesocket(sockfd);
+#else
 	close(sockfd);
+#endif
 }
 
 void guard(const char *program, bool ensure, const char *msg)
@@ -362,6 +500,14 @@ void guard(const char *program, bool ensure, const char *msg)
 // client.exe server.ip.addr.x
 int main(int argc, char const *argv[])
 {
+	#if PLATFORM == PLATFORM_WIN
+	WSADATA WsaData;
+	if (WSAStartup(MAKEWORD(2, 2), &WsaData) != NO_ERROR) {
+		fprintf(stderr, "error starting WSAStartup\n");
+		exit(1);
+	}
+	#endif
+
 	static const char *DEFAULT_LOGFILE = "logdata.csv";
 
 	struct config cfg;
@@ -376,7 +522,6 @@ int main(int argc, char const *argv[])
 
 		if (strcmp("-h", argv[1]) == 0 ||
 			strcmp("--help", argv[1]) == 0) usage();
-
 
 		int j = 1;
 		if (strcmp("-s", argv[j]) == 0 ||
@@ -426,6 +571,12 @@ int main(int argc, char const *argv[])
 		};
 	}
 
+	if (cfg.mode == jana_decide) {
+		fprintf(stderr, "%s: must either be a client (-c) or server (-s)\n", argv[0]);
+		fprintf(stderr, "\n");
+		usage();
+	}
+
 	if (cfg.mode == jana_client) {
 		run_client(&cfg);
 	}
@@ -433,6 +584,10 @@ int main(int argc, char const *argv[])
 	if (cfg.mode == jana_server) {
 		run_server(&cfg);
 	}
+
+	#if PLATFORM == PLATFORM_WIN
+	WSACleanup();
+	#endif
 
 	return 0;
 }
