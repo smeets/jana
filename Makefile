@@ -1,3 +1,4 @@
 
 .DEFAULT:
 	cd src && $(MAKE) $@
+
