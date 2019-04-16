@@ -355,9 +355,10 @@ init_phase:
 
 			uint64_t t = xclock_us(&tp_start); 
 			xclock_mark(&tp_now);
-			sendto(sockfd, (const char *)&data, sizeof(uint32_t), 0,
+			//uint32_t bytes_left = sizeof(uint32_t);
+			assert(sendto(sockfd, (const char *)&data, sizeof(uint32_t), 0,
 				(struct sockaddr*)(&cfg->addr),
-				sizeof(struct sockaddr_in));
+				sizeof(struct sockaddr_in)) == sizeof(uint32_t));
 
 			uint64_t us = xclock_us(&tp_now);
 
@@ -372,7 +373,7 @@ init_phase:
 	{
 		fprintf(stderr, "> %s ...", cfg->logfile);
 		FILE *logfd = fopen(cfg->logfile, "w");
-		fprintf(logfd, "packet, time, channel_access_delay\n");
+		fprintf(logfd, "packet, time, sendto_us\n");
 		for (uint64_t i = 0; i < packet_id; i++) {
 			fprintf(logfd, "%lu, %lu, %lu\n", i, packet_ttime[i], packet_delay[i]);
 		}
@@ -430,6 +431,7 @@ init_phase:
 					++idx);
 
 				if (idx == registered) {
+					counters[registered] = 0;
 					clients[registered++] = client;
 				}
 			}
@@ -463,7 +465,7 @@ init_phase:
 			if (len > 0) {
 				uint32_t x = chash((struct sockaddr_in *)&addr);
 				uint32_t i = (mphk * x % 479001599) % registered;
-				counters[i] = ntohl(packet);
+				counters[i] = counters[i] + 1; //ntohl(packet);
 			}
 		} while (xclock_elapsed(&tp_start) < 15);
 		fprintf(stderr, "\r> network test completed\n");
