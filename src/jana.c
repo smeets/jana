@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <assert.h>
 
 /* poor man's platform selector */
 #define PLATFORM_WIN  1
@@ -16,6 +17,8 @@
 #else
 #define PLATFORM PLATFORM_UNIX
 #endif
+
+#define MAX_PACKETS (5000000)
 
 #if PLATFORM == PLATFORM_WIN
 	#include <winsock2.h>
@@ -239,6 +242,7 @@ bool cmpaddr(struct sockaddr_in *a, struct sockaddr_in *b)
 uint32_t compute_mph_k(struct sockaddr_in *clients, uint32_t N)
 {
 	uint32_t *hashes = calloc(N, sizeof(uint32_t));
+	// TODO: use bitset instead to avoid allocation
 	uint32_t *table  = calloc(N, sizeof(uint32_t));
 
 	if (hashes == 0 || table == 0) {
@@ -293,6 +297,11 @@ void run_client(struct config *cfg)
 	int heartfd = init_socket(&local_addr, true);
 	int sockfd = init_socket(&local_addr, false);
 
+	uint64_t packet_id;
+	uint64_t *packet_delay;
+
+	packet_delay = calloc(MAX_PACKETS, sizeof(uint64_t));
+
 init_phase:
 	{
 		uint32_t i = 0;
@@ -330,7 +339,7 @@ init_phase:
 		struct xclock tp_start;
 		struct xclock tp_now;
 
-		uint32_t packet = 0;
+		packet_id = 0;
 
 		xclock_init(&tp_start);
 		fprintf(stderr, "\r> running test ");
@@ -338,20 +347,28 @@ init_phase:
 			struct sockaddr addr;
 			socklen_t fromlen = sizeof addr;
 
-			uint32_t data = htonl(++packet);
+			uint32_t data = htonl(packet_id);
 
 			xclock_mark(&tp_now);
 			sendto(sockfd, (const char *)&data, sizeof(uint32_t), 0,
 				(struct sockaddr*)(&cfg->addr),
 				sizeof(struct sockaddr_in));
+
 			uint64_t us = xclock_us(&tp_now);
+			assert (packet_id < MAX_PACKETS);
+			packet_delay[packet_id++] = us;
 		} while (xclock_elapsed(&tp_start) < 10);
 		fprintf(stderr, "\r> network test is done\n");
 	}
 
 	{
-		uint32_t i = 0;
-		fprintf(stderr, "> %s (%u B)\n", cfg->logfile, 3);
+		fprintf(stderr, "> %s ...\n", cfg->logfile);
+		FILE *logfd = fopen(cfg->logfile, "w");
+		fprintf(logfd, "packet, channel_access_delay\n");
+		for (uint64_t i = 0; i < packet_id; i++) {
+			fprintf(logfd, "%lu, %lu\n", i, packet_delay[i]);
+		}
+		fprintf(stderr, "> %s (%lu kb)\n", cfg->logfile, (8 + 2 + 8 + 1) * packet_id / 1000);
 	}
 
 	if (cfg->keepalive)
@@ -360,6 +377,7 @@ init_phase:
 cleanup:
 	close_socket(sockfd);
 	close_socket(heartfd);
+	free(packet_delay);
 }
 
 void run_server(struct config *cfg)
