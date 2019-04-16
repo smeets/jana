@@ -1,7 +1,12 @@
+HOST_CC=$(CC)
+ARM_CC=arm-linux-gnueabi-gcc
 
 jana: jana.c
-	$(CC) $< -o $@ -O3
+	$(HOST_CC) $< -o $@ -O3
+
+jana-arm: jana.c
+	$(ARM_CC) $< -o $@ -static
 
 clean:
 	rm -f jana
-	rm -f jana.o
+	rm -f jana-arm
