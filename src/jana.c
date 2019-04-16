@@ -285,6 +285,8 @@ const char * SPINNER[] = { "/", "-", "\\", "|", "/", "-", "\\", "|" };
 
 void run_client(struct config *cfg)
 {
+	static uint8_t zero_bytes[1500] = {0};
+
 	struct sockaddr_in local_addr;
 	local_addr.sin_family = AF_INET;
 	local_addr.sin_addr.s_addr = INADDR_ANY;
@@ -297,10 +299,12 @@ void run_client(struct config *cfg)
 	int heartfd = init_socket(&local_addr, true);
 	int sockfd = init_socket(&local_addr, false);
 
-	uint64_t packet_id;
+	uint32_t packet_id;
+	uint64_t *packet_ttime;
 	uint64_t *packet_delay;
 
 	packet_delay = calloc(MAX_PACKETS, sizeof(uint64_t));
+	packet_ttime = calloc(MAX_PACKETS, sizeof(uint64_t));
 
 init_phase:
 	{
@@ -342,33 +346,37 @@ init_phase:
 		packet_id = 0;
 
 		xclock_init(&tp_start);
-		fprintf(stderr, "\r> running test ");
+		fprintf(stderr, "\r> running test ...");
 		do {
 			struct sockaddr addr;
 			socklen_t fromlen = sizeof addr;
 
 			uint32_t data = htonl(packet_id);
 
+			uint64_t t = xclock_us(&tp_start); 
 			xclock_mark(&tp_now);
 			sendto(sockfd, (const char *)&data, sizeof(uint32_t), 0,
 				(struct sockaddr*)(&cfg->addr),
 				sizeof(struct sockaddr_in));
 
 			uint64_t us = xclock_us(&tp_now);
+
 			assert (packet_id < MAX_PACKETS);
-			packet_delay[packet_id++] = us;
+			packet_ttime[packet_id] = t;
+			packet_delay[packet_id] = us;
+			++packet_id;
 		} while (xclock_elapsed(&tp_start) < 10);
-		fprintf(stderr, "\r> network test is done\n");
+		fprintf(stderr, "\r> network test is done (%u packets sent)\n", packet_id);
 	}
 
 	{
-		fprintf(stderr, "> %s ...\n", cfg->logfile);
+		fprintf(stderr, "> %s ...", cfg->logfile);
 		FILE *logfd = fopen(cfg->logfile, "w");
-		fprintf(logfd, "packet, channel_access_delay\n");
+		fprintf(logfd, "packet, time, channel_access_delay\n");
 		for (uint64_t i = 0; i < packet_id; i++) {
-			fprintf(logfd, "%lu, %lu\n", i, packet_delay[i]);
+			fprintf(logfd, "%lu, %lu, %lu\n", i, packet_ttime[i], packet_delay[i]);
 		}
-		fprintf(stderr, "> %s (%lu kb)\n", cfg->logfile, (8 + 2 + 8 + 1) * packet_id / 1000);
+		fprintf(stderr, "\r> %s (%u kb)\n", cfg->logfile, (8 + 2 + 8 + 2 + 8 + 1) * packet_id / 1000);
 	}
 
 	if (cfg->keepalive)
@@ -378,6 +386,7 @@ cleanup:
 	close_socket(sockfd);
 	close_socket(heartfd);
 	free(packet_delay);
+	free(packet_ttime);
 }
 
 void run_server(struct config *cfg)
