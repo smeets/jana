@@ -1,2 +1,7 @@
 jana-arm
 jana
+pcap
+calc
+*.exe
+*.obj
+*.o

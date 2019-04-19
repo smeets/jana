@@ -394,9 +394,9 @@ init_phase:
 	{
 		fprintf(stderr, "> %s ...", cfg->logfile);
 		FILE *logfd = fopen(cfg->logfile, "w");
-		fprintf(logfd, "packet, time, sendto_us\n");
+		fprintf(logfd, "packet,time,sendto_us\n");
 		for (uint64_t i = 0; i < packet_id; i++) {
-			fprintf(logfd, "%lu, %lu, %lu\n", i, packet_ttime[i], packet_delay[i]);
+			fprintf(logfd, "%lu,%lu,%lu\n", i, packet_ttime[i], packet_delay[i]);
 		}
 		fprintf(stderr, "\r> %s (%u kb)\n", cfg->logfile, (8 + 2 + 8 + 2 + 8 + 1) * packet_id / 1000);
 	}
