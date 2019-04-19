@@ -13,6 +13,9 @@ jana-arm: jana.c
 pcap: pcap.h
 	$(HOST_CC) $(CFLAGS) $< -o $@ -O3
 
+calc: calc.h
+	$(HOST_CC) $(CFLAGS) $< -o $@ -O3
+
 clean:
 	rm -f jana
 	rm -f jana-arm
