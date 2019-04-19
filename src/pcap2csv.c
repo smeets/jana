@@ -100,8 +100,8 @@ typedef struct udp_hdr_s {
 } udp_hdr_t;
 
 void usage() {
-    fprintf(stderr, "Usage: pcap file -c client -s server [options]\n");
-    fprintf(stderr, "       pcap [-h|--help]\n");
+    fprintf(stderr, "Usage: pcap2csv file -c client -s server [options]\n");
+    fprintf(stderr, "       pcap2csv [-h|--help]\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "  file           path to pcap-encoded (binary) file\n");
     fprintf(stderr, "  -c, --client   ipv4 address of client\n");
@@ -109,7 +109,7 @@ void usage() {
     fprintf(stderr, "  -d, --dump     dump pcap global header\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "Examples:\n");
-    fprintf(stderr, "  pcap capture.pcap 192.168.1.24 192.168.1.25\n");
+    fprintf(stderr, "  pcap2csv capture.pcap 192.168.1.24 192.168.1.25\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "Built " __DATE__ " " __TIME__ "\n");
     exit(1);

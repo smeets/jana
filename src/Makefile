@@ -10,7 +10,7 @@ jana: jana.c
 jana-arm: jana.c
 	$(ARM_CC) $< -o $@ -static
 
-pcap: pcap.h
+pcap2csv: pcap2csv.h
 	$(HOST_CC) $(CFLAGS) $< -o $@ -O3
 
 calc: calc.h
@@ -19,3 +19,6 @@ calc: calc.h
 clean:
 	rm -f jana
 	rm -f jana-arm
+	rm -f pcap2csv
+	rm -f calc
+

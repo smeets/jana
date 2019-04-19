@@ -21,13 +21,21 @@ port 3000 in hex is `0x0BB8`
  - `cat /proc/sys/net/core/wmem_max`
  - `cat /proc/sys/net/core/wmem_default`
 
-print *minimum*, *initial* and *maxmimum* sizes 
-```bash 
+print *minimum*, *initial* and *maxmimum* sizes
+```bash
 cat /proc/sys/net/ipv4/udp_mem
 5400    7200    10800
 ```
 
 ```bash
 $ cat /proc/net/udp | grep '0BB8'
-  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode ref pointer drops        
+  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode ref pointer drops
  184: 00000000:0BB8 00000000:0000 07 00000000:00000000 00:00000000 00000000     0        0 71535230 2 c652b9e0 6215
+```
+
+## wireshark
+
+easier to use wireshark. save captured logs in `pcap` format, then use included `pcap2csv` program to translate into csv, and use included `calc` program to diff output from `jana` with wireshark capture .
+
+ - `make pcap2csv`
+ - `make calc`
