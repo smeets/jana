@@ -1,3 +1,5 @@
+CFLAGS=-Wall
+LDFLAGS=-lm
 HOST_CC=$(CC)
 ARM_CC=arm-linux-gnueabi-gcc
 
