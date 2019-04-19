@@ -47,7 +47,7 @@
 #endif
 
 // n = 1/y
-float exp(float n)
+float df_exp(float n)
 {
 	float x = ((float)rand())/(RAND_MAX+1);
 	return -n * log(1 - x);
@@ -289,7 +289,7 @@ uint32_t compute_mph_k(struct sockaddr_in *clients, uint32_t N)
 	exit(1);
 }
 
-const char * SPINNER[] = { "/", "-", "\\", "|", "/", "-", "\\", "|" };
+const char * SPINNER[] = { "/", "-", "\\", "|" };
 
 void run_client(struct config *cfg)
 {
@@ -319,7 +319,7 @@ init_phase:
 		uint32_t i = 0;
 		do {
 			fprintf(stderr, "\r> registering ");
-			fprintf(stderr, "%s", SPINNER[i % 8]);
+			fprintf(stderr, "%s", SPINNER[i % 4]);
 
 			if (i++ % 50 == 0) {
 				static const char *MSG = "HELLO";
@@ -340,7 +340,7 @@ init_phase:
 			}
 
 			fprintf(stderr, "\r> waiting to start ");
-			fprintf(stderr, "%s", SPINNER[i++ % 8]);
+			fprintf(stderr, "%s", SPINNER[i++ % 4]);
 
 			usleep(120*1000);
 		} while (!read_message(heartfd, "START", 0));
@@ -424,7 +424,7 @@ init_phase:
 		registered = 0;
 		while (registered < cfg->n_clients) {
 			fprintf(stderr, "\r> registering ");
-			fprintf(stderr, "%s [%u/%u]", SPINNER[i++ % 8], registered, cfg->n_clients);
+			fprintf(stderr, "%s [%u/%u]", SPINNER[i++ % 4], registered, cfg->n_clients);
 
 			if (read_message(sockfd, "HELLO", &client)) {
 				inet_ntop(AF_INET, &(client.sin_addr), ip, INET_ADDRSTRLEN);
@@ -472,8 +472,8 @@ init_phase:
 			int len = recvfrom(sockfd, (char*)&packet, sizeof(packet), 0, &addr, &fromlen);
 			if (len > 0) {
 				uint32_t x = chash((struct sockaddr_in *)&addr);
-				uint32_t i = (mphk * x % 479001599) % registered;
-				counters[i] = counters[i] + 1; //ntohl(packet);
+				uint32_t f = (mphk * x % 479001599) % registered;
+				counters[f] = counters[f] + 1; //ntohl(packet);
 			}
 		} while (xclock_elapsed(&tp_start) < 15);
 		fprintf(stderr, "\r> network test completed\n");
@@ -484,10 +484,10 @@ init_phase:
 	{
 		for (int i = 0; i < registered; ++i) {
 			struct sockaddr_in *addr = clients + i;
-			uint32_t x = (mphk * chash(addr) % 479001599) % registered;
+			uint32_t f = (mphk * chash(addr) % 479001599) % registered;
 			inet_ntop(AF_INET, &(addr->sin_addr), ip, INET_ADDRSTRLEN);
-			printf("> [%d/%u] %s:%u %u\n", i, x,
-				ip, ntohs(addr->sin_port), counters[x]);
+			printf("> [%d/%u (%u)] %s:%u %u\n", i+1, registered, f,
+				ip, ntohs(addr->sin_port), counters[f]);
 		}
 	}
 
