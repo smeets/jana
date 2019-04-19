@@ -243,7 +243,7 @@ int main(int argc, char *argv[])
 			uint8_t *pktdata = memory;
 			uint16_t datalen = ntohs(udp_hdr->pkt_size) - sizeof(udp_hdr);
 
-			uint64_t usec = rec_hdr->ts_sec * 1'000'000 + rec_hdr->ts_usec;
+			uint64_t usec = rec_hdr->ts_sec * 1000000 + rec_hdr->ts_usec;
 
 			if (datalen == 6) {
 				if (strcmp("SETGO", (char*)pktdata) == 0)
