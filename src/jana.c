@@ -150,12 +150,18 @@ uint64_t xclock_us(struct xclock *c)
 #if PLATFORM == PLATFORM_WIN
 	LARGE_INTEGER li;
     QueryPerformanceCounter(&li);
-	return (uint64_t)(li.QuadPart - c->ctr) * 1000000.0 / c->freq;
+    if (c == NULL)
+		return (uint64_t)(li.QuadPart) * 1000000.0 / c->freq;
+	else
+		return (uint64_t)(li.QuadPart - c->ctr) * 1000000.0 / c->freq;
 #else
 	struct timespec now;
 	clock_gettime(CLOCK_MONOTONIC, &now);
-	return (uint64_t)(now.tv_sec - c->tp.tv_sec) * 1000000 +
-		(now.tv_nsec - c->tp.tv_nsec) / 1000;
+	if (c == NULL)
+		return (uint64_t)(now.tv_sec) * 1000000 + (now.tv_nsec) / 1000;
+	else
+		return (uint64_t)(now.tv_sec - c->tp.tv_sec) * 1000000 +
+			(now.tv_nsec - c->tp.tv_nsec) / 1000;
 #endif
 }
 
@@ -343,8 +349,15 @@ init_phase:
 			fprintf(stderr, "%s", SPINNER[i++ % 4]);
 
 			usleep(120*1000);
-		} while (!read_message(heartfd, "START", 0));
-		fprintf(stderr, "\r> got the start signal\n");
+		} while (!read_message(heartfd, "READY", 0));
+		fprintf(stderr, "\r> got the ready signal\n");
+	}
+
+	{
+		static const char *MSG = "SETGO";
+		sendto(sockfd, &MSG, strlen(MSG)+1, 0,
+					(struct sockaddr*)(&cfg->addr),
+					sizeof(struct sockaddr_in));
 	}
 
 	{
@@ -454,7 +467,7 @@ init_phase:
 	fprintf(stderr, "\r> g(x) = (%u * x mod %u) mod %u\n", mphk, 479001599, registered);
 
 	{
-		static const char *MSG = "START";
+		static const char *MSG = "READY";
 		for (uint32_t i = 0; i < registered; ++i) {
 			sendto(sockfd, MSG, strlen(MSG)+1, 0, (struct sockaddr*)(clients + i), sizeof(struct sockaddr_in));
 		}
