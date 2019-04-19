@@ -10,10 +10,10 @@ jana: jana.c
 jana-arm: jana.c
 	$(ARM_CC) $< -o $@ -static
 
-pcap2csv: pcap2csv.h
+pcap2csv: pcap2csv.c
 	$(HOST_CC) $(CFLAGS) $< -o $@ -O3
 
-calc: calc.h
+calc: calc.c
 	$(HOST_CC) $(CFLAGS) $< -o $@ -O3
 
 clean:
