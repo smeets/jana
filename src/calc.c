@@ -43,18 +43,18 @@ int main(int argc, char const *argv[])
 
 	printf("packet,delta\n");
 	while (true) {
-		uint64_t pcap_packet, pcap_time;
-		uint64_t call_packet, call_time, call_extra;
+		uint32_t pcap_packet, call_packet;
+		uint64_t pcap_time, call_time, call_extra;
 
-		fscanf(pcap, "%I64u,%I64u\n", &pcap_packet, &pcap_time);
+		fscanf(pcap, "%u,%llu\n", &pcap_packet, &pcap_time);
 
 		do {
-			fscanf(call, "%I64u,%I64u,%I64u\n", &call_packet, &call_time, &call_extra);
+			fscanf(call, "%u,%llu,%llu\n", &call_packet, &call_time, &call_extra);
 			if (call_packet != pcap_packet)
-				fprintf(stderr, "packet %I64u dropped\n", call_packet);
+				fprintf(stderr, "packet %u dropped\n", call_packet);
 		} while (call_packet != pcap_packet);
 
-		printf("%I64u,%I64u\n", pcap_packet, pcap_time - call_time - call_extra);
+		printf("%u,%llu\n", pcap_packet, pcap_time - call_time - call_extra);
 		if (feof(call) || feof(pcap)) break;
 	}
 

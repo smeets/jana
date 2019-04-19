@@ -29,12 +29,13 @@
 
 enum read_mode {
 	read_mode_same,
-	read_mode_swap
+	read_mode_swap,
+	read_mode_shit
 };
 
 static const char *MODE_NAME[2] = {
-	{"identical"},
-	{"swapped"}
+	"identical",
+	"swapped"
 };
 
 #define	SWAPLONG(y) \
@@ -165,7 +166,7 @@ int main(int argc, char *argv[])
 	pcap_hdr_t pcap_hdr;
 	fread((void *)&pcap_hdr, 20, 1, pcap);
 
-	enum read_mode mode;
+	enum read_mode mode = read_mode_shit;
 	{
 		if (pcap_hdr.magic_number == MAGIC_NUMBER)
 			mode = read_mode_same;
@@ -201,9 +202,9 @@ int main(int argc, char *argv[])
 	fseek(pcap, 4, SEEK_CUR);
 
 	{
-		uint8_t       *memory;
-		uint64_t      start;
-		uint32_t      begin, mem_len;
+		uint8_t  *memory;
+		uint64_t start;
+		size_t   begin, mem_len;
 
 		begin = ftell(pcap);
 		fseek(pcap, 0, SEEK_END);
@@ -211,7 +212,12 @@ int main(int argc, char *argv[])
 		fseek(pcap, begin, SEEK_SET);
 
 		memory = calloc(mem_len, sizeof(uint8_t));
-		fread((void*)memory,sizeof(uint8_t), mem_len, pcap);
+		if (memory == NULL) {
+			perror("could not get memory for pcap file");
+			exit(1);
+		}
+
+		fread((void*)memory, sizeof(uint8_t), mem_len, pcap);
 
 		printf("packet,time\n");
 
@@ -250,7 +256,7 @@ int main(int argc, char *argv[])
 					start = usec;
 			} else if (datalen == 4) {
 				uint32_t data = ntohl(*((uint32_t*)pktdata));
-				printf("%I64u,%I64u\n", data, usec - start);
+				printf("%u,%llu\n", data, usec - start);
 			}
 
 skip:
