@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <assert.h>
+#include <math.h>
 
 /* poor man's platform selector */
 #define PLATFORM_WIN  1
@@ -44,6 +45,13 @@
 	#include <time.h>
 
 #endif
+
+// n = 1/y
+float exp(float n)
+{
+	float x = ((float)rand())/(RAND_MAX+1);
+	return -n * log(1 - x);
+}
 
 void usage() {
     fprintf(stderr, "Usage: jana [-s clients|-c host] [options]\n");
@@ -353,7 +361,7 @@ init_phase:
 
 			uint32_t data = htonl(packet_id);
 
-			uint64_t t = xclock_us(&tp_start); 
+			uint64_t t = xclock_us(&tp_start);
 			xclock_mark(&tp_now);
 			//uint32_t bytes_left = sizeof(uint32_t);
 			assert(sendto(sockfd, (const char *)&data, sizeof(uint32_t), 0,
@@ -597,6 +605,8 @@ int main(int argc, char const *argv[])
 		fprintf(stderr, "\n");
 		usage();
 	}
+
+	srand(time(NULL));
 
 	if (cfg.mode == jana_client) {
 		run_client(&cfg);
