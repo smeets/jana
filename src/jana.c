@@ -355,7 +355,7 @@ init_phase:
 
 	{
 		static const char *MSG = "SETGO";
-		sendto(sockfd, &MSG, strlen(MSG)+1, 0,
+		sendto(sockfd, MSG, strlen(MSG)+1, 0,
 					(struct sockaddr*)(&cfg->addr),
 					sizeof(struct sockaddr_in));
 	}
