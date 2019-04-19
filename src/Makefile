@@ -4,7 +4,7 @@ HOST_CC=$(CC)
 ARM_CC=arm-linux-gnueabi-gcc
 
 jana: jana.c
-	$(HOST_CC) $< -o $@ -O3
+	$(HOST_CC) $(CFLAGS) $< -o $@ -O3 $(LDFLAGS)
 
 jana-arm: jana.c
 	$(ARM_CC) $< -o $@ -static
