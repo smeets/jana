@@ -6,65 +6,76 @@
 #include <assert.h>
 #include <math.h>
 
-/* poor man's platform selector */
-#define PLATFORM_WIN  1
-#define PLATFORM_MAC  2
-#define PLATFORM_UNIX 3
-
-#if defined(_WIN32)
-#define PLATFORM PLATFORM_WIN
-#elif defined(__APPLE__)
-#define PLATFORM PLATFORM_MAC
-#else
-#define PLATFORM PLATFORM_UNIX
-#endif
-
 #define MAX_PACKETS (5000000)
 
-#if PLATFORM == PLATFORM_WIN
-	#include <winsock2.h>
-	#include <windows.h>
-	#pragma comment(lib, "ws2_32.lib")
+#include <unistd.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <time.h>
+#define u64f "lu"
 
-	void usleep(uint32_t us)
-	{
-		Sleep((int)(us/1000));
-	}
+float rand1() { return ((float)rand())/((float)(RAND_MAX)+1); }
 
-	typedef int socklen_t;
-	#define INET_ADDRSTRLEN  (16)
-
-#else
-
-	#include <unistd.h>
-	#include <sys/socket.h>
-	#include <arpa/inet.h>
-	#include <netinet/in.h>
-	#include <fcntl.h>
-	#include <unistd.h>
-	#include <time.h>
-
-#endif
-
-// n = 1/y
-float df_exp(float n)
+typedef union pdf_cfg_s
 {
-	float x = ((float)rand())/(RAND_MAX+1);
-	return -n * log(1 - x);
+	struct uniform
+	{
+		float n;
+		float k;
+	} uniform;
+
+	struct exp
+	{
+		float n;
+	} exp;
+
+	struct gamma
+	{
+		float a;
+		float b;
+	} gamma;
+} pdf_cfg_t;
+
+typedef float (*pdf_rv_fn)(pdf_cfg_t*);
+
+float uniform_rvs(pdf_cfg_t *cfg)
+{
+	return cfg->uniform.n * rand1() + cfg->uniform.k;
+}
+
+float exp_rvs(pdf_cfg_t *cfg)
+{
+	float x = rand1();
+	return -cfg->exp.n * log(1 - x);
+}
+// x = −(1/β)*ln(α∏i=1(Ui))
+float gamma_rvs(pdf_cfg_t *cfg)
+{
+	float x = rand1();
+	float i = cfg->gamma.a - 1;
+	while (i-- >= 1) {
+		x *= rand1();
+	}
+	return -(1/cfg->gamma.b) * log(x);
 }
 
 void usage() {
     fprintf(stderr, "Usage: jana [-s clients|-c host] [options]\n");
     fprintf(stderr, "       jana [-h|--help]\n");
     fprintf(stderr, "\n");
+    fprintf(stderr, "  -s X           run in server mode with X clients\n");
+    fprintf(stderr, "  -c host        run as client, connect to host (ip addr)\n");
+    fprintf(stderr, "\n");
     fprintf(stderr, "Server or Client:\n");
     fprintf(stderr, "  -p, --port     port to listen on/connect to\n");
     fprintf(stderr, "  -f, --file     name of statistics/data logfile\n");
     fprintf(stderr, "Client specific:\n");
-    fprintf(stderr, "  -r, --rate [D] packet transmission rate distribution\n");
-    fprintf(stderr, "  -d, --data [D] packet data size distribution (in bytes)\n");
+    fprintf(stderr, "  -r, --rate [D] packet transmission rate distribution [us]\n");
+    fprintf(stderr, "  -d, --data [D] packet data size distribution [bytes]\n");
     fprintf(stderr, "Server specific:\n");
-    fprintf(stderr, "  -s, --server   run in server mode\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "Examples:\n");
     fprintf(stderr, "  jana -s -p 3333\n");
@@ -72,7 +83,15 @@ void usage() {
     fprintf(stderr, "\n");
     fprintf(stderr, "[D] indicates options that support a notation for");
     fprintf(stderr, " expressing distribution functions:\n");
-    fprintf(stderr, "  exp(a)         F(x) = 1 - e^{ax}\n");
+    fprintf(stderr, "  exp            -(1/y)*ln(1 - rand())\n");
+    fprintf(stderr, "  gamma          −(1/b)*ln(a∏i=1(rand()))\n");
+    fprintf(stderr, "  uniform        n*rand() + k\n");
+    fprintf(stderr, "\n");
+    fprintf(stderr, "  [fn] [k1=v1,k2=v2,...]\n");
+    fprintf(stderr, "\n");
+    fprintf(stderr, "Examples:\n");
+    fprintf(stderr, "  -r gamma a=33,b=55\n");
+    fprintf(stderr, "  -r gamma a=33,b=55 -d uniform n=0,k=100\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "Built " __DATE__ " " __TIME__ "\n");
     exit(1);
@@ -102,96 +121,42 @@ struct config
 	enum     jana_mode 		mode;
 	struct   sockaddr_in 	addr;
 
+	pdf_rv_fn				wait_rv;
+	pdf_rv_fn				data_rv;
+
+	pdf_cfg_t 				wait_pdf;
+	pdf_cfg_t 				data_pdf;
+
 	uint32_t n_clients;
 	bool 	 keepalive;
 
 	const char *logfile;
 };
 
-/**
- * xclock - wrapper around windows qpc and unix gettime apis.
- */
-struct xclock
+uint64_t clock_elapsed_us(struct timespec *c)
 {
-#if PLATFORM == PLATFORM_WIN
-	double freq;
-	int64_t ctr;
-#else
-	struct timespec tp;
-#endif
-};
-
-void xclock_mark(struct xclock *c)
-{
-#if PLATFORM == PLATFORM_WIN
-	LARGE_INTEGER li;
-    QueryPerformanceCounter(&li);
-    c->ctr = li.QuadPart;
-#else
-	clock_gettime(CLOCK_MONOTONIC, &c->tp);
-#endif
-}
-
-void xclock_init(struct xclock *c)
-{
-#if PLATFORM == PLATFORM_WIN
-	LARGE_INTEGER li;
-    if (!QueryPerformanceFrequency(&li)) {
-    	fprintf(stderr, "xclock_init: QueryPerformanceFrequency error\n");
-    	exit(1);
-    }
-    c->freq = (double)li.QuadPart;
-#endif
-    xclock_mark(c);
-}
-
-uint64_t xclock_us(struct xclock *c)
-{
-#if PLATFORM == PLATFORM_WIN
-	LARGE_INTEGER li;
-    QueryPerformanceCounter(&li);
-    if (c == NULL)
-		return (uint64_t)(li.QuadPart) * 1000000.0 / c->freq;
-	else
-		return (uint64_t)(li.QuadPart - c->ctr) * 1000000.0 / c->freq;
-#else
 	struct timespec now;
 	clock_gettime(CLOCK_MONOTONIC, &now);
-	if (c == NULL)
-		return (uint64_t)(now.tv_sec) * 1000000 + (now.tv_nsec) / 1000;
-	else
-		return (uint64_t)(now.tv_sec - c->tp.tv_sec) * 1000000 +
-			(now.tv_nsec - c->tp.tv_nsec) / 1000;
-#endif
+	if (c != NULL) {
+		now.tv_sec -= c->tv_sec;
+		now.tv_nsec -= c->tv_nsec;
+	}
+	return (uint64_t)(now.tv_sec) * 1000000 + (now.tv_nsec) / 1000;
 }
 
-double xclock_elapsed(struct xclock *c)
+double clock_elapsed_sec(struct timespec *c)
 {
-#if PLATFORM == PLATFORM_WIN
-	LARGE_INTEGER li;
-    QueryPerformanceCounter(&li);
-	return (double)(li.QuadPart - c->ctr) / c->freq;
-#else
 	struct timespec now;
 	clock_gettime(CLOCK_MONOTONIC, &now);
-	return (double)(now.tv_sec - c->tp.tv_sec) +
-		   (double)(now.tv_nsec - c->tp.tv_nsec) / 1000000000;
-#endif
+	if (c != NULL)
+		now.tv_sec -= c->tv_sec;
+	return (double)(now.tv_sec);
 }
 
 
 /**
  * poor man's socket wrapper
  */
-void close_socket(int sockfd)
-{
-#if PLATFORM == PLATFORM_WIN
-		closesocket(sockfd);
-#else
-		close(sockfd);
-#endif
-}
-
 int init_socket(struct sockaddr_in *addr, bool nonblock)
 {
 	int sockfd;
@@ -205,17 +170,12 @@ int init_socket(struct sockaddr_in *addr, bool nonblock)
 
 	if (bind(sockfd, (const struct sockaddr*)addr, sizeof(struct sockaddr_in)) < 0) {
 		perror("init_socket: failed to bind socket");
-		close_socket(sockfd);
+		close(sockfd);
 		exit(1);
 	}
 
 	if (nonblock) {
-	#if PLATFORM == PLATFORM_WIN
-		DWORD nonBlock = 1;
-		ioctlsocket(sockfd, FIONBIO, &nonBlock);
-	#else
 		fcntl(sockfd, F_SETFL, O_NONBLOCK);
-	#endif
 	}
 
 	return sockfd;
@@ -316,9 +276,28 @@ void run_client(struct config *cfg)
 	uint32_t packet_id;
 	uint64_t *packet_ttime;
 	uint64_t *packet_delay;
+	uint32_t *wait_rvs;
+	uint32_t *data_rvs;
 
 	packet_delay = calloc(MAX_PACKETS, sizeof(uint64_t));
 	packet_ttime = calloc(MAX_PACKETS, sizeof(uint64_t));
+
+	wait_rvs = calloc(MAX_PACKETS, sizeof(uint32_t));
+	data_rvs = calloc(MAX_PACKETS, sizeof(uint32_t));
+
+	if (cfg->wait_rv != NULL) {
+		printf("> generating delay distribution...");
+		for (size_t i = 0; i < MAX_PACKETS; ++i)
+			wait_rvs[i] = cfg->wait_rv(&cfg->wait_pdf);
+		printf("\r> generated packet delay distribution\n");
+	}
+
+	if (cfg->data_rv != NULL) {
+		printf("> generating data distribution...");
+		for (size_t i = 0; i < MAX_PACKETS; ++i)
+			data_rvs[i] = cfg->data_rv(&cfg->data_pdf);
+		printf("\r> generated packet payload distribution\n");
+	}
 
 init_phase:
 	{
@@ -361,33 +340,34 @@ init_phase:
 	}
 
 	{
-		struct xclock tp_start;
-		struct xclock tp_now;
+		struct timespec tp_start;
+		struct timespec tp_now;
 
 		packet_id = 0;
 
-		xclock_init(&tp_start);
+		clock_gettime(CLOCK_MONOTONIC, &tp_start);
 		fprintf(stderr, "\r> running test ...");
 		do {
-			struct sockaddr addr;
-			socklen_t fromlen = sizeof addr;
+			uint32_t *data = (uint32_t*)zero_bytes;
+			*data = htonl(packet_id);
 
-			uint32_t data = htonl(packet_id);
+			usleep(wait_rvs[packet_id]);
 
-			uint64_t t = xclock_us(&tp_start);
-			xclock_mark(&tp_now);
-			//uint32_t bytes_left = sizeof(uint32_t);
-			assert(sendto(sockfd, (const char *)&data, sizeof(uint32_t), 0,
-				(struct sockaddr*)(&cfg->addr),
-				sizeof(struct sockaddr_in)) == sizeof(uint32_t));
+			uint64_t t = clock_elapsed_us(NULL);
+			clock_gettime(CLOCK_MONOTONIC, &tp_now);
 
-			uint64_t us = xclock_us(&tp_now);
+			sendto(sockfd,
+				zero_bytes,
+				sizeof(uint32_t) + data_rvs[packet_id],
+				0, (struct sockaddr*)(&cfg->addr), sizeof(struct sockaddr_in));
+
+			uint64_t us = clock_elapsed_us(&tp_now);
 
 			assert (packet_id < MAX_PACKETS);
 			packet_ttime[packet_id] = t;
 			packet_delay[packet_id] = us;
 			++packet_id;
-		} while (xclock_elapsed(&tp_start) < 10);
+		} while (clock_elapsed_sec(&tp_start) < 10);
 		fprintf(stderr, "\r> network test is done (%u packets sent)\n", packet_id);
 	}
 
@@ -396,17 +376,16 @@ init_phase:
 		FILE *logfd = fopen(cfg->logfile, "w");
 		fprintf(logfd, "packet,time,sendto_us\n");
 		for (uint64_t i = 0; i < packet_id; i++) {
-			fprintf(logfd, "%lu,%lu,%lu\n", i, packet_ttime[i], packet_delay[i]);
+			fprintf(logfd, "%" u64f ",%" u64f ",%" u64f "\n", i, packet_ttime[i], packet_delay[i]);
 		}
-		fprintf(stderr, "\r> %s (%u kb)\n", cfg->logfile, (8 + 2 + 8 + 2 + 8 + 1) * packet_id / 1000);
+		fprintf(stderr, "\r> %s...DONE\n", cfg->logfile);
 	}
 
 	if (cfg->keepalive)
 		goto init_phase;
 
-cleanup:
-	close_socket(sockfd);
-	close_socket(heartfd);
+	close(sockfd);
+	close(heartfd);
 	free(packet_delay);
 	free(packet_ttime);
 }
@@ -474,12 +453,12 @@ init_phase:
 	}
 
 	{
-		struct xclock   tp_start;
+		struct timespec tp_start;
 		uint32_t        packet;
 		struct sockaddr addr;
 		socklen_t       fromlen = sizeof addr;
 
-		xclock_init(&tp_start);
+		clock_gettime(CLOCK_MONOTONIC, &tp_start);
 		fprintf(stderr, "> running network test");
 		do {
 			int len = recvfrom(sockfd, (char*)&packet, sizeof(packet), 0, &addr, &fromlen);
@@ -488,7 +467,7 @@ init_phase:
 				uint32_t f = (mphk * x % 479001599) % registered;
 				counters[f] = counters[f] + 1; //ntohl(packet);
 			}
-		} while (xclock_elapsed(&tp_start) < 15);
+		} while (clock_elapsed_sec(&tp_start) < 15);
 		fprintf(stderr, "\r> network test completed\n");
 	}
 
@@ -525,10 +504,9 @@ init_phase:
 		goto init_phase;
 	}
 
-cleanup:
 	free(counters);
 	free(clients);
-	close_socket(sockfd);
+	close(sockfd);
 }
 
 void guard(const char *program, bool ensure, const char *msg)
@@ -539,17 +517,37 @@ void guard(const char *program, bool ensure, const char *msg)
 	}
 }
 
+bool parse_pdf(const char *pdf_arg, const char *cfg_arg, pdf_rv_fn *rv, pdf_cfg_t *cfg)
+{
+	if (strcmp("exp", pdf_arg) == 0) {
+		*rv = &exp_rvs;
+		if (!sscanf(cfg_arg, "n=%f", &cfg->exp.n))
+			return false;
+		return true;
+	}
+
+	if (strcmp("uniform", pdf_arg) == 0) {
+		*rv = &uniform_rvs;
+
+		if (!sscanf(cfg_arg, "n=%f,k=%f", &cfg->uniform.n, &cfg->uniform.k))
+			return false;
+
+		return true;
+	}
+
+	if (strcmp("gamma", pdf_arg) == 0) {
+		*rv = &exp_rvs;
+		if (!sscanf(cfg_arg, "a=%f,b=%f", &cfg->gamma.a, &cfg->gamma.b))
+			return false;
+		return true;
+	}
+
+	return false;
+}
+
 // client.exe server.ip.addr.x
 int main(int argc, char const *argv[])
 {
-	#if PLATFORM == PLATFORM_WIN
-	WSADATA WsaData;
-	if (WSAStartup(MAKEWORD(2, 2), &WsaData) != NO_ERROR) {
-		fprintf(stderr, "error starting WSAStartup\n");
-		exit(1);
-	}
-	#endif
-
 	static const char *DEFAULT_LOGFILE = "logdata.csv";
 
 	struct config cfg;
@@ -606,6 +604,29 @@ int main(int argc, char const *argv[])
 					exit(1);
 				}
 				cfg.addr.sin_port = htons(port);
+			} else if (strcmp("-f", argv[j]) == 0 ||
+				strcmp("--file", argv[j]) == 0) {
+
+				guard(argv[0], (j = j + 1) < argc, "must specify path");
+				cfg.logfile = argv[j];
+			} else if (strcmp("-r", argv[j]) == 0 ||
+				strcmp("--rate", argv[j]) == 0) {
+
+				guard(argv[0], (j = j + 1) + 1 < argc, "must specify distribution and cfg");
+				if (!parse_pdf(argv[j], argv[j+1], &cfg.wait_rv, &cfg.wait_pdf)) {
+					fprintf(stderr, "unknown distribution %s or config %s\n", argv[j], argv[j+1]);
+					exit(1);
+				}
+				j = j + 1;
+			} else if (strcmp("-d", argv[j]) == 0 ||
+				strcmp("--data", argv[j]) == 0) {
+
+				guard(argv[0], (j = j + 1) + 1 < argc, "must specify distribution and cfg");
+				if (!parse_pdf(argv[j], argv[j+1], &cfg.data_rv, &cfg.data_pdf)) {
+					fprintf(stderr, "unknown distribution %s or config %s\n", argv[j], argv[j+1]);
+					exit(1);
+				}
+				j = j + 1;
 			} else {
 				fprintf(stderr, "unknown option %s\n", argv[j]);
 				exit(1);
@@ -628,10 +649,6 @@ int main(int argc, char const *argv[])
 	if (cfg.mode == jana_server) {
 		run_server(&cfg);
 	}
-
-	#if PLATFORM == PLATFORM_WIN
-	WSACleanup();
-	#endif
 
 	return 0;
 }
