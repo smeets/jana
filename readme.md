@@ -39,3 +39,13 @@ easier to use wireshark. save captured logs in `pcap` format, then use included 
 
  - `make pcap2csv`
  - `make calc`
+
+### tshark
+very good. very feel. no qt in sight.
+
+```bash
+$ # list interfaces
+$ tshark -D
+...
+$ tshark -i 2 -F pcap -w capture.pcap -f "udp"
+```
