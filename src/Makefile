@@ -4,6 +4,10 @@ JANA_LDFLAGS=-lm
 HOST_CC=$(CC)
 ARM_CC=arm-linux-gnueabi-gcc
 
+.PHONY: all
+
+all: jana pcap2csv calc
+
 jana: jana.c
 	$(HOST_CC) $(CFLAGS) $< -o $@ -O3 $(JANA_LDFLAGS)
 
