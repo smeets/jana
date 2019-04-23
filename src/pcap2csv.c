@@ -6,14 +6,11 @@
 #include <assert.h>
 #include <math.h>
 
-#define PLATFORM_WIN  1
-#define PLATFORM_MAC  2
-#define PLATFORM_UNIX 3
-
 #if defined(_WIN32)
 	#include <winsock2.h>
 	#include <windows.h>
 	#pragma comment(lib, "ws2_32.lib")
+	#define u64f "I64u"
 #else
 	#include <unistd.h>
 	#include <sys/socket.h>
@@ -22,6 +19,7 @@
 	#include <fcntl.h>
 	#include <unistd.h>
 	#include <time.h>
+#define u64f "lu"
 #endif
 
 #define MAGIC_NUMBER      (0xa1b2c3d4)
@@ -203,7 +201,6 @@ int main(int argc, char *argv[])
 
 	{
 		uint8_t  *memory;
-		uint64_t start;
 		size_t   begin, mem_len;
 
 		begin = ftell(pcap);
@@ -221,7 +218,6 @@ int main(int argc, char *argv[])
 
 		printf("packet,time\n");
 
-		start = 0;
 		while (mem_len > 0) {
 			pcaprec_hdr_t *rec_hdr = (pcaprec_hdr_t*)memory;
 			memory += sizeof(pcaprec_hdr_t);
@@ -251,12 +247,9 @@ int main(int argc, char *argv[])
 
 			uint64_t usec = rec_hdr->ts_sec * 1000000 + rec_hdr->ts_usec;
 
-			if (datalen == 6) {
-				if (strcmp("SETGO", (char*)pktdata) == 0)
-					start = usec;
-			} else if (datalen == 4) {
+			if (datalen == 4) {
 				uint32_t data = ntohl(*((uint32_t*)pktdata));
-				printf("%u,%llu\n", data, usec - start);
+				printf("%u,%" u64f "\n", data, usec);
 			}
 
 skip:
