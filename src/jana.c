@@ -133,10 +133,10 @@ struct config
 	const char *logfile;
 };
 
-uint64_t clock_elapsed_us(struct timespec *c)
+uint64_t clock_elapsed_us(clockid_t clk, struct timespec *c)
 {
 	struct timespec now;
-	clock_gettime(CLOCK_MONOTONIC, &now);
+	clock_gettime(clk, &now);
 	if (c != NULL) {
 		now.tv_sec -= c->tv_sec;
 		now.tv_nsec -= c->tv_nsec;
@@ -353,7 +353,7 @@ init_phase:
 
 			usleep(wait_rvs[packet_id]);
 
-			uint64_t t = clock_elapsed_us(NULL);
+			uint64_t t = clock_elapsed_us(CLOCK_REALTIME, NULL);
 			clock_gettime(CLOCK_MONOTONIC, &tp_now);
 
 			sendto(sockfd,
@@ -361,7 +361,7 @@ init_phase:
 				sizeof(uint32_t) + data_rvs[packet_id],
 				0, (struct sockaddr*)(&cfg->addr), sizeof(struct sockaddr_in));
 
-			uint64_t us = clock_elapsed_us(&tp_now);
+			uint64_t us = clock_elapsed_us(CLOCK_MONOTONIC, &tp_now);
 
 			assert (packet_id < MAX_PACKETS);
 			packet_ttime[packet_id] = t;
