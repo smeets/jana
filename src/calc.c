@@ -2,12 +2,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <stdbool.h>
 
 #if defined(_WIN32)
 	#define u64f "I64u"
 #else
-	#define u64f "lu"
+	#define u64f PRIu64
 #endif
 
 void usage() {

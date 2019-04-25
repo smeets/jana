@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <stdbool.h>
 #include <assert.h>
 #include <math.h>
@@ -19,7 +20,7 @@
 	#include <fcntl.h>
 	#include <unistd.h>
 	#include <time.h>
-#define u64f "lu"
+#define u64f PRIu64
 #endif
 
 #define MAGIC_NUMBER      (0xa1b2c3d4)

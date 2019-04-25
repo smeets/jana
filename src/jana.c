@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <stdbool.h>
 #include <assert.h>
 #include <math.h>
@@ -15,7 +16,6 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <time.h>
-#define u64f "lu"
 
 float rand1() { return ((float)rand())/((float)(RAND_MAX)+1); }
 
@@ -376,7 +376,7 @@ init_phase:
 		FILE *logfd = fopen(cfg->logfile, "w");
 		fprintf(logfd, "packet,time,sendto_us\n");
 		for (uint64_t i = 0; i < packet_id; i++) {
-			fprintf(logfd, "%" u64f ",%" u64f ",%" u64f "\n", i, packet_ttime[i], packet_delay[i]);
+			fprintf(logfd, "%" PRIu64 ",%" PRIu64 ",%" PRIu64 "\n", i, packet_ttime[i], packet_delay[i]);
 		}
 		fprintf(stderr, "\r> %s...DONE\n", cfg->logfile);
 	}
