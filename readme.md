@@ -12,6 +12,19 @@ $ sudo apt-get install gcc make gcc-arm-linux-gnueabi binutils-arm-linux-gnueabi
 $ make jana-arm
 ```
 
+### cross-compiling on windows
+using docker
+
+```bash
+$ docker pull ev3dev/debian-stretch-cross
+$ docker tag ev3dev/debian-stretch-cross ev3cc
+$ # cd path\to\jana
+$ docker run --rm -it -v %cd%\src:/src -w /src ev3cc
+$ # in container
+compiler@xyz:/src$ make jana-arm
+compiler@xyz:/src$ exit
+```
+
 ## notes
 
 port 3000 in hex is `0x0BB8`

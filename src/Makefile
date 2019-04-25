@@ -12,7 +12,7 @@ jana: jana.c
 	$(HOST_CC) $(CFLAGS) $< -o $@ -O3 $(JANA_LDFLAGS)
 
 jana-arm: jana.c
-	$(ARM_CC) $< -o $@ -static
+	$(ARM_CC) $< -o $@ -static -O3  $(JANA_LDFLAGS)
 
 pcap2csv: pcap2csv.c
 	$(HOST_CC) $(CFLAGS) $< -o $@ -O3
