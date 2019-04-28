@@ -219,6 +219,8 @@ int main(int argc, char *argv[])
 
 		printf("packet,time\n");
 
+		bool seen_go = false;
+
 		while (mem_len > 0) {
 			pcaprec_hdr_t *rec_hdr = (pcaprec_hdr_t*)memory;
 			memory += sizeof(pcaprec_hdr_t);
@@ -234,6 +236,7 @@ int main(int argc, char *argv[])
 			if (version != 4) goto skip;
 
 			// protocol must be udp
+
 			if (ip_hdr->protocol != 17) goto skip;
 
 			// packets from myself to server
@@ -246,11 +249,13 @@ int main(int argc, char *argv[])
 			uint8_t *pktdata = memory;
 			uint16_t datalen = ntohs(udp_hdr->pkt_size) - sizeof(udp_hdr);
 
-			uint64_t usec = rec_hdr->ts_sec * 1000000 + rec_hdr->ts_usec;
+			uint64_t usec = ((uint64_t)rec_hdr->ts_sec) * 1000 * 1000 + rec_hdr->ts_usec;
 
-			if (datalen == 4) {
+			if (seen_go) {
 				uint32_t data = ntohl(*((uint32_t*)pktdata));
 				printf("%u,%" u64f "\n", data, usec);
+			} else if (strncmp("SETGO", pktdata, 5) == 0) {
+				seen_go = true;
 			}
 
 skip:
