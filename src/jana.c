@@ -108,10 +108,11 @@ void usage() {
  */
 uint32_t chash(struct sockaddr_in *sa)
 {
-	/* promote port to 32 bits */
 	uint32_t addr = sa->sin_addr.s_addr;
-	uint32_t port = sa->sin_port;
-	return addr ^ (port * 59);
+	return addr;
+	/* promote port to 32 bits */
+	//uint32_t port = sa->sin_port;
+	// return addr ^ (port * 59);
 }
 
 enum jana_mode { jana_decide, jana_client, jana_server };
@@ -399,7 +400,7 @@ void run_server(struct config *cfg)
 	printf("> using %s:%d\n", ip, ntohs(cfg->addr.sin_port));
 
 	uint32_t           registered;
-	uint32_t           mphk;
+	uint64_t           mphk;
 
 	struct sockaddr_in *clients;
 	uint32_t           *counters;
@@ -421,8 +422,7 @@ init_phase:
 			if (read_message(sockfd, "HELLO", &client)) {
 				inet_ntop(AF_INET, &(client.sin_addr), ip, INET_ADDRSTRLEN);
 
-				fprintf(stderr, "\r> HELLO from %s:%d\n",
-					ip, ntohs(client.sin_port));
+				fprintf(stderr, "\r> HELLO from %s\n", ip);
 				sendto(sockfd, MSG, strlen(MSG)+1, 0, (struct sockaddr*)&client, sizeof(struct sockaddr_in));
 
 				uint32_t idx;
@@ -441,9 +441,18 @@ init_phase:
 	}
 
 	usleep(500*1000);
-	fprintf(stderr, "> computing perfect hash");
-	mphk = compute_mph_k(clients, registered);
-	fprintf(stderr, "\r> g(x) = (%u * x mod %u) mod %u\n", mphk, 479001599, registered);
+	{
+		fprintf(stderr, "> computing perfect hash");
+		mphk = compute_mph_k(clients, registered);
+		fprintf(stderr, "\r> g(x) = (%" PRIu64 "* x mod %u) mod %u\n", mphk, 479001599, registered);
+		for (int i = 0; i < registered; ++i) {
+			struct sockaddr_in *addr = clients + i;
+			uint64_t f = (mphk * chash(addr) % 479001599) % registered;
+			inet_ntop(AF_INET, &(addr->sin_addr), ip, INET_ADDRSTRLEN);
+			printf("> [%d/%u (%" PRIu64 ")] %s:%u %u\n", i+1, registered, f,
+				ip, ntohs(addr->sin_port), counters[f]);
+		}
+	}
 
 	{
 		static const char *MSG = "READY";
@@ -463,8 +472,8 @@ init_phase:
 		do {
 			int len = recvfrom(sockfd, (char*)&packet, sizeof(packet), 0, &addr, &fromlen);
 			if (len > 0) {
-				uint32_t x = chash((struct sockaddr_in *)&addr);
-				uint32_t f = (mphk * x % 479001599) % registered;
+				uint64_t x = chash((struct sockaddr_in *)&addr);
+				uint64_t f = (mphk * x % 479001599) % registered;
 				counters[f] = counters[f] + 1; //ntohl(packet);
 			}
 		} while (clock_elapsed_sec(&tp_start) < 15);
@@ -476,9 +485,9 @@ init_phase:
 	{
 		for (int i = 0; i < registered; ++i) {
 			struct sockaddr_in *addr = clients + i;
-			uint32_t f = (mphk * chash(addr) % 479001599) % registered;
+			uint64_t f = (mphk * chash(addr) % 479001599) % registered;
 			inet_ntop(AF_INET, &(addr->sin_addr), ip, INET_ADDRSTRLEN);
-			printf("> [%d/%u (%u)] %s:%u %u\n", i+1, registered, f,
+			printf("> [%d/%u (%" PRIu64 ")] %s:%u %u\n", i+1, registered, f,
 				ip, ntohs(addr->sin_port), counters[f]);
 		}
 	}
