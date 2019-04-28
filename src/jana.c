@@ -32,11 +32,11 @@ typedef union pdf_cfg_s
 		float n;
 	} exp;
 
-	struct gamma
+	struct weibull
 	{
 		float a;
 		float b;
-	} gamma;
+	} weibull;
 } pdf_cfg_t;
 
 typedef float (*pdf_rv_fn)(pdf_cfg_t*);
@@ -52,14 +52,14 @@ float exp_rvs(pdf_cfg_t *cfg)
 	return -cfg->exp.n * log(1 - x);
 }
 // x = −(1/β)*ln(α∏i=1(Ui))
-float gamma_rvs(pdf_cfg_t *cfg)
+float weibull_rvs(pdf_cfg_t *cfg)
 {
 	float x = rand1();
-	float i = cfg->gamma.a - 1;
+	float i = cfg->weibull.a - 1;
 	while (i-- >= 1) {
 		x *= rand1();
 	}
-	return -(1/cfg->gamma.b) * log(x);
+	return -(1/cfg->weibull.b) * log(x);
 }
 
 void usage() {
@@ -83,15 +83,15 @@ void usage() {
     fprintf(stderr, "\n");
     fprintf(stderr, "[D] indicates options that support a notation for");
     fprintf(stderr, " expressing distribution functions:\n");
-    fprintf(stderr, "  exp            -(1/y)*ln(1 - rand())\n");
-    fprintf(stderr, "  gamma          −(1/b)*ln(a∏i=1(rand()))\n");
+    fprintf(stderr, "  exp            -y*ln(1 - rand())\n");
+    fprintf(stderr, "  weibull        a*pow(-ln(rand()), 1/b)\n");
     fprintf(stderr, "  uniform        n*rand() + k\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "  [fn] [k1=v1,k2=v2,...]\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "Examples:\n");
-    fprintf(stderr, "  -r gamma a=33,b=55\n");
-    fprintf(stderr, "  -r gamma a=33,b=55 -d uniform n=0,k=100\n");
+    fprintf(stderr, "  -r weibull a=33,b=55\n");
+    fprintf(stderr, "  -r weibull a=33,b=55 -d uniform n=0,k=100\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "Built " __DATE__ " " __TIME__ "\n");
     exit(1);
@@ -535,9 +535,9 @@ bool parse_pdf(const char *pdf_arg, const char *cfg_arg, pdf_rv_fn *rv, pdf_cfg_
 		return true;
 	}
 
-	if (strcmp("gamma", pdf_arg) == 0) {
+	if (strcmp("weibull", pdf_arg) == 0) {
 		*rv = &exp_rvs;
-		if (!sscanf(cfg_arg, "a=%f,b=%f", &cfg->gamma.a, &cfg->gamma.b))
+		if (!sscanf(cfg_arg, "a=%f,b=%f", &cfg->weibull.a, &cfg->weibull.b))
 			return false;
 		return true;
 	}
