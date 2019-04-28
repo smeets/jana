@@ -50,7 +50,7 @@ int main(int argc, char const *argv[])
 
 	printf("packet,delta\n");
 	uint64_t offset = 0;
-	while (true) {
+	while (!feof(call) && !feof(pcap)) {
 		uint32_t pcap_packet, call_packet;
 		uint64_t pcap_time, call_time, call_extra;
 
@@ -67,7 +67,6 @@ int main(int argc, char const *argv[])
 		uint64_t time_diff = pcap_time >= call_tot ? pcap_time - call_tot : -1;
 
 		printf("%u,%" u64f "\n", pcap_packet, time_diff - offset);
-		if (feof(call) || feof(pcap)) break;
 	}
 
 	fclose(pcap);
