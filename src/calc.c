@@ -45,30 +45,33 @@ int main(int argc, char const *argv[])
 		exit(1);
 	}
 
-	fscanf(pcap, "packet,time\n");
-	fscanf(call, "packet,time,sendto_us\n"); // bytes?
+	fscanf(pcap, "packet,time,bytes\n");
+	fscanf(call, "packet,time,sendto_us\n");
 
-	printf("packet,delta\n");
-	uint64_t offset = 0;
+	printf("packet,delta,bytes\n");
+	uint64_t dropped = 0;
 	while (!feof(call) && !feof(pcap)) {
 		uint32_t pcap_packet, call_packet;
 		uint64_t pcap_time, call_time, call_extra;
+		uint32_t pcap_bytes;
 
-		fscanf(pcap, "%u,%" u64f "\n", &pcap_packet, &pcap_time);
+		fscanf(pcap, "%u,%" u64f ",%u\n", &pcap_packet, &pcap_time, &pcap_bytes);
 
 		do {
 			fscanf(call, "%u,%" u64f ",%" u64f "\n", &call_packet, &call_time, &call_extra);
-			if (call_packet != pcap_packet)
-				fprintf(stderr, "packet %u dropped\n", call_packet);
-		} while (call_packet != pcap_packet);
+			if (call_packet == pcap_packet) {
+				// uint64_t call_tot = call_time + call_extra;
+				uint64_t call_tot = call_time;
+				uint64_t time_diff = pcap_time >= call_tot ? pcap_time - call_tot : -1;
 
-
-		uint64_t call_tot = call_time;// + call_extra;
-		uint64_t time_diff = pcap_time >= call_tot ? pcap_time - call_tot : -1;
-
-		printf("%u,%" u64f "\n", pcap_packet, time_diff - offset);
+				printf("%u,%" u64f ",%u\n", pcap_packet, time_diff, pcap_bytes);
+			} else {
+				dropped++;
+			}
+		} while (call_packet != pcap_packet && !feof(call));
 	}
 
+	fprintf(stderr, "dropped %" u64f " packets\n", dropped);
 	fclose(pcap);
 	fclose(call);
 

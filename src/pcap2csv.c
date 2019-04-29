@@ -217,7 +217,7 @@ int main(int argc, char *argv[])
 
 		fread((void*)memory, sizeof(uint8_t), mem_len, pcap);
 
-		printf("packet,time\n");
+		printf("packet,time,bytes\n");
 
 		bool seen_go = false;
 
@@ -253,7 +253,7 @@ int main(int argc, char *argv[])
 
 			if (seen_go) {
 				uint32_t data = ntohl(*((uint32_t*)pktdata));
-				printf("%u,%" u64f "\n", data, usec);
+				printf("%u,%" u64f ",%u\n", data, usec, datalen);
 			} else if (strncmp("SETGO", pktdata, 5) == 0) {
 				seen_go = true;
 			}
