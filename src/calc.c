@@ -48,7 +48,7 @@ int main(int argc, char const *argv[])
 	fscanf(pcap, "packet,time,bytes\n");
 	fscanf(call, "packet,time,sendto_us\n");
 
-	printf("packet,delta,bytes\n");
+	printf("packet,send,syscall,pcap,bytes\n");
 	uint64_t dropped = 0;
 	while (!feof(call) && !feof(pcap)) {
 		uint32_t pcap_packet, call_packet;
@@ -60,11 +60,12 @@ int main(int argc, char const *argv[])
 		do {
 			fscanf(call, "%u,%" u64f ",%" u64f "\n", &call_packet, &call_time, &call_extra);
 			if (call_packet == pcap_packet) {
-				// uint64_t call_tot = call_time + call_extra;
-				uint64_t call_tot = call_time;
-				uint64_t time_diff = pcap_time >= call_tot ? pcap_time - call_tot : -1;
-
-				printf("%u,%" u64f ",%u\n", pcap_packet, time_diff, pcap_bytes);
+				printf("%u,%" u64f ",%" u64f ",%" u64f ",%u\n",
+					pcap_packet,
+					call_time,
+					call_extra,
+					pcap_time,
+					pcap_bytes);
 			} else {
 				dropped++;
 			}

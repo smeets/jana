@@ -25,7 +25,7 @@ TPID=$(pgrep tshark)
 
 sleep 5s
 
-./src/jana -c $GATEWAY -f $JANALOG_CSV
+./src/jana -c $GATEWAY -f $JANALOG_CSV -d uniform n=0,k=1020
 
 sleep 10s
 kill $TPID > /dev/null 2>&1
