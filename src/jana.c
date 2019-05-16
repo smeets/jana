@@ -18,6 +18,8 @@
 #include <unistd.h>
 #include <time.h>
 
+#define MAX_PKT_SIZE (64100)
+
 
 float rand1() { return ((float)rand())/((float)(RAND_MAX)+1); }
 
@@ -262,7 +264,7 @@ const char * SPINNER[] = { "/", "-", "\\", "|" };
 
 void run_client(struct config *cfg)
 {
-	static uint8_t zero_bytes[1500] = {0};
+	static uint8_t zero_bytes[MAX_PKT_SIZE] = {0};
 
 	struct sockaddr_in local_addr;
 	local_addr.sin_family = AF_INET;
@@ -396,6 +398,7 @@ init_phase:
 void run_server(struct config *cfg)
 {
 	static char ip[INET_ADDRSTRLEN];
+	static uint8_t zero_bytes[MAX_PKT_SIZE] = {0};
 
 	int sockfd = init_socket(&cfg->addr, true);
 	inet_ntop(AF_INET, &(cfg->addr.sin_addr), ip, INET_ADDRSTRLEN);
@@ -406,9 +409,16 @@ void run_server(struct config *cfg)
 
 	struct sockaddr_in *clients;
 	uint32_t           *counters;
+	uint64_t           *recvdata;
 
 	clients  = calloc(cfg->n_clients, sizeof(struct sockaddr_in));
 	counters = calloc(cfg->n_clients, sizeof(uint32_t));
+	recvdata = calloc(cfg->n_clients, sizeof(uint64_t));
+
+	if (clients == NULL || counters == NULL || recvdata == NULL) {
+		perror("run_server: failed to allocate buffers");
+		exit(1);
+	}
 
 init_phase:
 	{
@@ -434,6 +444,7 @@ init_phase:
 
 				if (idx == registered) {
 					counters[registered] = 0;
+					recvdata[registered] = 0;
 					clients[registered++] = client;
 				}
 			}
@@ -465,18 +476,18 @@ init_phase:
 
 	{
 		struct timespec tp_start;
-		uint32_t        packet;
 		struct sockaddr addr;
 		socklen_t       fromlen = sizeof addr;
 
 		clock_gettime(CLOCK_MONOTONIC, &tp_start);
 		fprintf(stderr, "> running network test");
 		do {
-			int len = recvfrom(sockfd, (char*)&packet, sizeof(packet), 0, &addr, &fromlen);
+			int len = recvfrom(sockfd, zero_bytes, MAX_PKT_SIZE, 0, &addr, &fromlen);
 			if (len > 0) {
 				uint64_t x = chash((struct sockaddr_in *)&addr);
 				uint64_t f = (mphk * x % 479001599) % registered;
 				counters[f] = counters[f] + 1; //ntohl(packet);
+				recvdata[f] = recvdata[f] + len;
 			}
 		} while (clock_elapsed_sec(&tp_start) < 15);
 		fprintf(stderr, "\r> network test completed\n");
@@ -489,8 +500,8 @@ init_phase:
 			struct sockaddr_in *addr = clients + i;
 			uint64_t f = (mphk * chash(addr) % 479001599) % registered;
 			inet_ntop(AF_INET, &(addr->sin_addr), ip, INET_ADDRSTRLEN);
-			printf("> [%d/%u (%" PRIu64 ")] %s:%u %u\n", i+1, registered, f,
-				ip, ntohs(addr->sin_port), counters[f]);
+			printf("> [%d/%u (%" PRIu64 ")] %s:%u %u pkts (%" PRIu64 " B)\n", i+1, registered, f,
+				ip, ntohs(addr->sin_port), counters[f], recvdata[f]);
 		}
 	}
 
@@ -512,6 +523,7 @@ init_phase:
 	if (cfg->keepalive) {
 		memset(clients, 0, registered * sizeof(struct sockaddr_in));
 		memset(counters, 0, registered * sizeof(uint32_t));
+		memset(recvdata, 0, registered * sizeof(uint32_t));
 		goto init_phase;
 	}
 
