@@ -53,17 +53,17 @@ float uniform_rvs(pdf_cfg_t *cfg)
 float exp_rvs(pdf_cfg_t *cfg)
 {
 	float x = rand1();
-	return -cfg->exp.n * log(1 - x);
+	return -cfg->exp.n * log(1.0 - x);
 }
 // x = −(1/β)*ln(α∏i=1(Ui))
 float weibull_rvs(pdf_cfg_t *cfg)
 {
 	float x = rand1();
-	float i = cfg->weibull.a - 1;
+	float i = cfg->weibull.a - 1.0;
 	while (i-- >= 1) {
 		x *= rand1();
 	}
-	return -(1/cfg->weibull.b) * log(x);
+	return -(1.0/cfg->weibull.b) * log(x);
 }
 
 void usage() {
@@ -76,13 +76,15 @@ void usage() {
     fprintf(stderr, "Server or Client:\n");
     fprintf(stderr, "  -p, --port     port to listen on/connect to\n");
     fprintf(stderr, "  -f, --file     name of statistics/data logfile\n");
+    fprintf(stderr, "  -t, --time X   test duration in X seconds\n");
     fprintf(stderr, "Client specific:\n");
     fprintf(stderr, "  -r, --rate [D] packet transmission rate distribution [us]\n");
     fprintf(stderr, "  -d, --data [D] packet data size distribution [bytes]\n");
+    fprintf(stderr, "  -l, --loop     loop test until quit by Ctrl-C\n");
     fprintf(stderr, "Server specific:\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "Examples:\n");
-    fprintf(stderr, "  jana -s -p 3333\n");
+    fprintf(stderr, "  jana -s 1 -p 3333\n");
     fprintf(stderr, "  jana -c 192.168.1.5 -p 3333\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "[D] indicates options that support a notation for");
@@ -102,21 +104,13 @@ void usage() {
 }
 
 /**
- * hash a client's ip and port: ADDR xor (PORT * 59)
- *
- * 01234567 01234567 01234567 01234567 ADDR
- * 00000000 00000000 01234567 01234567 PORT
- *
- * XOR is decent but there are better options.
- * 59 seems to be a good prime number for this case.
+ * hash a client's ip
  */
 uint32_t chash(struct sockaddr_in *sa)
 {
 	uint32_t addr = sa->sin_addr.s_addr;
 	return addr;
-	/* promote port to 32 bits */
-	//uint32_t port = sa->sin_port;
-	// return addr ^ (port * 59);
+
 }
 
 enum jana_mode { jana_decide, jana_client, jana_server };
@@ -134,6 +128,7 @@ struct config
 
 	uint32_t n_clients;
 	bool 	 keepalive;
+	int 	 testtime;
 
 	const char *logfile;
 };
@@ -288,20 +283,29 @@ void run_client(struct config *cfg)
 	packet_ttime = calloc(MAX_PACKETS, sizeof(uint64_t));
 
 	wait_rvs = calloc(MAX_PACKETS, sizeof(uint32_t));
+	if (!wait_rvs) {
+		perror("run_client: error allocating delay array");
+		exit(1);
+	}
+	
 	data_rvs = calloc(MAX_PACKETS, sizeof(uint32_t));
+	if (!data_rvs) {
+		perror("run_client: allocating data array");
+		exit(1);
+	}
 
-	if (cfg->wait_rv != NULL) {
-		printf("> generating delay distribution...");
+	if (cfg->wait_rv) {
+		fprintf(stderr, "> generating delay distribution...");
 		for (size_t i = 0; i < MAX_PACKETS; ++i)
 			wait_rvs[i] = cfg->wait_rv(&cfg->wait_pdf);
-		printf("\r> generated packet delay distribution\n");
+		fprintf(stderr, "OK\n");
 	}
 
 	if (cfg->data_rv != NULL) {
-		printf("> generating data distribution...");
+		fprintf(stderr, "> generating data distribution...");
 		for (size_t i = 0; i < MAX_PACKETS; ++i)
 			data_rvs[i] = cfg->data_rv(&cfg->data_pdf);
-		printf("\r> generated packet payload distribution\n");
+		fprintf(stderr, "OK\n");
 	}
 
 init_phase:
@@ -318,7 +322,7 @@ init_phase:
 
 			usleep(120*1000);
 		} while (!read_message(heartfd, "HELLO", 0));
-		fprintf(stderr, "\r> registered on server\n");
+		fprintf(stderr, "\r> registering OK\n");
 	}
 
 	{
@@ -347,6 +351,7 @@ init_phase:
 	{
 		struct timespec tp_start;
 		struct timespec tp_now;
+		uint32_t data_len;
 
 		packet_id = 0;
 
@@ -355,15 +360,17 @@ init_phase:
 		do {
 			uint32_t *data = (uint32_t*)zero_bytes;
 			*data = htonl(packet_id);
+			data_len = sizeof(uint32_t) + data_rvs[packet_id];
 
-			usleep(wait_rvs[packet_id]);
+			if (cfg->wait_rv)
+				usleep(wait_rvs[packet_id]);
 
 			uint64_t t = clock_elapsed_us(CLOCK_REALTIME, NULL);
 			clock_gettime(CLOCK_MONOTONIC, &tp_now);
 
 			sendto(sockfd,
 				zero_bytes,
-				sizeof(uint32_t) + data_rvs[packet_id],
+				data_len,
 				0, (struct sockaddr*)(&cfg->addr), sizeof(struct sockaddr_in));
 
 			uint64_t us = clock_elapsed_us(CLOCK_MONOTONIC, &tp_now);
@@ -372,7 +379,7 @@ init_phase:
 			packet_ttime[packet_id] = t;
 			packet_delay[packet_id] = us;
 			++packet_id;
-		} while (clock_elapsed_sec(&tp_start) < 10);
+		} while (clock_elapsed_sec(&tp_start) < cfg->testtime);
 		fprintf(stderr, "\r> network test is done (%u packets sent)\n", packet_id);
 	}
 
@@ -489,7 +496,7 @@ init_phase:
 				counters[f] = counters[f] + 1; //ntohl(packet);
 				recvdata[f] = recvdata[f] + len;
 			}
-		} while (clock_elapsed_sec(&tp_start) < 15);
+		} while (clock_elapsed_sec(&tp_start) < cfg->testtime);
 		fprintf(stderr, "\r> network test completed\n");
 	}
 
@@ -544,7 +551,7 @@ bool parse_pdf(const char *pdf_arg, const char *cfg_arg, pdf_rv_fn *rv, pdf_cfg_
 {
 	if (strcmp("exp", pdf_arg) == 0) {
 		*rv = &exp_rvs;
-		if (!sscanf(cfg_arg, "n=%f", &cfg->exp.n))
+		if (!sscanf(cfg_arg, "y=%f", &cfg->exp.n))
 			return false;
 		return true;
 	}
@@ -576,6 +583,7 @@ int main(int argc, char const *argv[])
 	struct config cfg;
 	memset(&cfg, 0, sizeof cfg);
 
+	cfg.testtime = 10;
 	cfg.logfile = DEFAULT_LOGFILE;
 	cfg.addr.sin_family = AF_INET;
 	cfg.addr.sin_port = htons(3000);
@@ -650,6 +658,22 @@ int main(int argc, char const *argv[])
 					exit(1);
 				}
 				j = j + 1;
+			} else if (strcmp("-l", argv[j]) == 0 ||
+				strcmp("--loop", argv[j]) == 0) {
+				
+				cfg.keepalive = true;
+			} else if (strcmp("-t", argv[j]) == 0 ||
+				strcmp("--time", argv[j]) == 0) {
+
+				guard(argv[0], (j = j + 1) < argc, "must specify seconds");
+				if (!sscanf(argv[j], "%d", &cfg.testtime)) {
+					fprintf(stderr, "unknown number format %s\n", argv[j]);
+					exit(1);
+				}
+			} else if (strcmp("-h", argv[j]) == 0 ||
+				strcmp("--help", argv[j]) == 0) {
+				
+				usage();
 			} else {
 				fprintf(stderr, "unknown option %s\n", argv[j]);
 				exit(1);
