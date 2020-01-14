@@ -8,6 +8,7 @@
 #include <math.h>
 
 #define MAX_PACKETS (5000000)
+#define MAX_CLIENTS (256)
 
 #include <linux/net_tstamp.h>
 #include <sys/socket.h>
@@ -67,11 +68,12 @@ float weibull_rvs(pdf_cfg_t *cfg)
 }
 
 void usage() {
-    fprintf(stderr, "Usage: jana [-s clients|-c host] [options]\n");
+    fprintf(stderr, "Usage: jana [-s clients|-c host|-x host] [options]\n");
     fprintf(stderr, "       jana [-h|--help]\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "  -s X           run in server mode with X clients\n");
     fprintf(stderr, "  -c host        run as client, connect to host (ip addr)\n");
+    fprintf(stderr, "  -x host        run as dummy client, connecting to host and exiting on test start\n");
     fprintf(stderr, "\n");
     fprintf(stderr, "Server or Client:\n");
     fprintf(stderr, "  -p, --port     port to listen on/connect to\n");
@@ -109,11 +111,11 @@ void usage() {
 uint32_t chash(struct sockaddr_in *sa)
 {
 	uint32_t addr = sa->sin_addr.s_addr;
-	return addr;
+	return addr >> 24;
 
 }
 
-enum jana_mode { jana_decide, jana_client, jana_server };
+enum jana_mode { jana_decide, jana_client, jana_server, jana_dummy };
 
 struct config
 {
@@ -202,57 +204,7 @@ bool read_message(int sockfd, const char *want, struct sockaddr_in *from)
 
 bool cmpaddr(struct sockaddr_in *a, struct sockaddr_in *b)
 {
-	return a->sin_addr.s_addr == b->sin_addr.s_addr &&
-		   a->sin_port == b->sin_port;
-}
-
-/**
- *  Very naive implementation of a minimal perfect hash function,
- *
- * 	g(x) = (kx mod p) mod n
- *
- * where p is a large prime, n is set size and k the magic factor.
- */
-uint32_t compute_mph_k(struct sockaddr_in *clients, uint32_t N)
-{
-	uint32_t *hashes = calloc(N, sizeof(uint32_t));
-	// TODO: use bitset instead to avoid allocation
-	uint32_t *table  = calloc(N, sizeof(uint32_t));
-
-	if (hashes == 0 || table == 0) {
-		fprintf(stderr, "compute_mph_k: out-of-memory\n");
-		exit(-1);
-	}
-
-	for (uint32_t i = 0; i < N; ++i) {
-		hashes[i] = chash(clients + i);
-	}
-	for (uint32_t k = 1; k != 0; ++k) {
-		bool found = true;
-
-		for (uint32_t i = 0; i < N; ++i) {
-			uint32_t f = (k * hashes[i] % 479001599) % N;
-
-			if (table[f] == 0) {
-				table[f] = hashes[i];
-			} else {
-				found = false;
-				break;
-			}
-		}
-
-		if (found) {
-			free(hashes);
-			free(table);
-			return k;
-		}
-		memset(table, 0, N * sizeof(uint32_t));
-	}
-
-	fprintf(stderr, "compute_mph_k: not possible\n");
-	free(hashes);
-	free(table);
-	exit(1);
+	return a->sin_addr.s_addr == b->sin_addr.s_addr;
 }
 
 const char * SPINNER[] = { "/", "-", "\\", "|" };
@@ -287,7 +239,7 @@ void run_client(struct config *cfg)
 		perror("run_client: error allocating delay array");
 		exit(1);
 	}
-	
+
 	data_rvs = calloc(MAX_PACKETS, sizeof(uint32_t));
 	if (!data_rvs) {
 		perror("run_client: allocating data array");
@@ -328,8 +280,8 @@ init_phase:
 	{
 		uint32_t i = 0;
 		do {
-			if (i > 150) {
-				fprintf(stderr, "\r> timeout after 18 s\n");
+			if (i > 300) {
+				fprintf(stderr, "\r> timeout after 36 s\n");
 				goto init_phase;
 			}
 
@@ -341,12 +293,21 @@ init_phase:
 		fprintf(stderr, "\r> got the ready signal\n");
 	}
 
+	usleep(500*1000);
+
+	if (cfg->mode == jana_dummy) {
+		fprintf(stderr, "> in dummy mode, exiting\n");
+		goto cleanup;
+	}
+
 	{
 		static const char *MSG = "SETGO";
 		sendto(sockfd, MSG, strlen(MSG)+1, 0,
 					(struct sockaddr*)(&cfg->addr),
 					sizeof(struct sockaddr_in));
 	}
+
+	usleep(500*1000);
 
 	{
 		struct timespec tp_start;
@@ -396,6 +357,7 @@ init_phase:
 	if (cfg->keepalive)
 		goto init_phase;
 
+cleanup:
 	close(sockfd);
 	close(heartfd);
 	free(packet_delay);
@@ -412,15 +374,14 @@ void run_server(struct config *cfg)
 	printf("> using %s:%d\n", ip, ntohs(cfg->addr.sin_port));
 
 	uint32_t           registered;
-	uint64_t           mphk;
 
 	struct sockaddr_in *clients;
 	uint32_t           *counters;
 	uint64_t           *recvdata;
 
-	clients  = calloc(cfg->n_clients, sizeof(struct sockaddr_in));
-	counters = calloc(cfg->n_clients, sizeof(uint32_t));
-	recvdata = calloc(cfg->n_clients, sizeof(uint64_t));
+	clients  = calloc(MAX_CLIENTS, sizeof(struct sockaddr_in));
+	counters = calloc(MAX_CLIENTS, sizeof(uint32_t));
+	recvdata = calloc(MAX_CLIENTS, sizeof(uint64_t));
 
 	if (clients == NULL || counters == NULL || recvdata == NULL) {
 		perror("run_server: failed to allocate buffers");
@@ -432,11 +393,16 @@ init_phase:
 		struct sockaddr_in client;
 		static const char *MSG = "HELLO";
 		uint32_t i = 0;
-
+		struct timespec tp_now;
 		registered = 0;
+
+		clock_gettime(CLOCK_MONOTONIC, &tp_now);
 		while (registered < cfg->n_clients) {
-			fprintf(stderr, "\r> registering ");
-			fprintf(stderr, "%s [%u/%u]", SPINNER[i++ % 4], registered, cfg->n_clients);
+			if (clock_elapsed_sec(&tp_now) >= 1) {
+				clock_gettime(CLOCK_MONOTONIC, &tp_now);
+				fprintf(stderr, "\r> registering ");
+				fprintf(stderr, "%s [%u/%u]", SPINNER[i++ % 4], registered, cfg->n_clients);
+			}
 
 			if (read_message(sockfd, "HELLO", &client)) {
 				inet_ntop(AF_INET, &(client.sin_addr), ip, INET_ADDRSTRLEN);
@@ -455,29 +421,44 @@ init_phase:
 					clients[registered++] = client;
 				}
 			}
-
-			usleep(100*1000);
 		}
 	}
 
 	usleep(500*1000);
-	{
-		fprintf(stderr, "> computing perfect hash");
-		mphk = compute_mph_k(clients, registered);
-		fprintf(stderr, "\r> g(x) = (%" PRIu64 "* x mod %u) mod %u\n", mphk, 479001599, registered);
-		for (int i = 0; i < registered; ++i) {
-			struct sockaddr_in *addr = clients + i;
-			uint64_t f = (mphk * chash(addr) % 479001599) % registered;
-			inet_ntop(AF_INET, &(addr->sin_addr), ip, INET_ADDRSTRLEN);
-			printf("> [%d/%u (%" PRIu64 ")] %s:%u %u\n", i+1, registered, f,
-				ip, ntohs(addr->sin_port), counters[f]);
-		}
-	}
 
 	{
 		static const char *MSG = "READY";
 		for (uint32_t i = 0; i < registered; ++i) {
 			sendto(sockfd, MSG, strlen(MSG)+1, 0, (struct sockaddr*)(clients + i), sizeof(struct sockaddr_in));
+		}
+	}
+
+	{
+		struct sockaddr_in client;
+		struct timespec    tp_now;
+		uint32_t i = registered;
+
+		clock_gettime(CLOCK_MONOTONIC, &tp_now);
+
+		while (clock_elapsed_sec(&tp_now) < 5 && i > 0) {
+			if (read_message(sockfd, "SETGO", &client)) {
+				i--;
+			}
+		}
+
+		if (i > 0) {
+			// system("./beep-error.exe");
+			goto cleanup;
+		}
+	}
+
+	{
+		for (int i = 0; i < registered; ++i) {
+			struct sockaddr_in *addr = clients + i;
+			uint32_t f = chash(addr);
+			inet_ntop(AF_INET, &(addr->sin_addr), ip, INET_ADDRSTRLEN);
+			printf("> [%d/%u (%u)] %s:%u %u\n", i+1, registered, f,
+				ip, ntohs(addr->sin_port), counters[f]);
 		}
 	}
 
@@ -491,8 +472,7 @@ init_phase:
 		do {
 			int len = recvfrom(sockfd, zero_bytes, MAX_PKT_SIZE, 0, &addr, &fromlen);
 			if (len > 0) {
-				uint64_t x = chash((struct sockaddr_in *)&addr);
-				uint64_t f = (mphk * x % 479001599) % registered;
+				uint32_t f = chash((struct sockaddr_in *)&addr);
 				counters[f] = counters[f] + 1; //ntohl(packet);
 				recvdata[f] = recvdata[f] + len;
 			}
@@ -505,21 +485,21 @@ init_phase:
 	{
 		for (int i = 0; i < registered; ++i) {
 			struct sockaddr_in *addr = clients + i;
-			uint64_t f = (mphk * chash(addr) % 479001599) % registered;
+			uint32_t f = chash(addr);
 			inet_ntop(AF_INET, &(addr->sin_addr), ip, INET_ADDRSTRLEN);
-			printf("> [%d/%u (%" PRIu64 ")] %s:%u %u pkts (%" PRIu64 " B)\n", i+1, registered, f,
+			printf("> [%d/%u (%u)] %s:%u %u pkts (%" PRIu64 " B)\n", i+1, registered, f,
 				ip, ntohs(addr->sin_port), counters[f], recvdata[f]);
 		}
 	}
 
 	{
-		static char     data[100];
+		static char     data[64000];
 		struct sockaddr addr;
 		int             len;
 		socklen_t       fromlen = sizeof addr;
 		uint32_t        consumed = 0;
 		do {
-			len = recvfrom(sockfd, data, 100, 0, &addr, &fromlen);
+			len = recvfrom(sockfd, data, 64000, 0, &addr, &fromlen);
 			if (len > 0) {
 				consumed++;
 			}
@@ -528,12 +508,13 @@ init_phase:
 	}
 
 	if (cfg->keepalive) {
-		memset(clients, 0, registered * sizeof(struct sockaddr_in));
-		memset(counters, 0, registered * sizeof(uint32_t));
-		memset(recvdata, 0, registered * sizeof(uint32_t));
+		memset(clients, 0, MAX_CLIENTS * sizeof(struct sockaddr_in));
+		memset(counters, 0, MAX_CLIENTS * sizeof(uint32_t));
+		memset(recvdata, 0, MAX_CLIENTS * sizeof(uint64_t));
 		goto init_phase;
 	}
 
+cleanup:
 	free(counters);
 	free(clients);
 	close(sockfd);
@@ -618,8 +599,19 @@ int main(int argc, char const *argv[])
 				exit(1);
 			}
 			// cfg.addr.sin_addr.s_addr = htonl(cfg.addr.sin_addr.s_addr);
-		} else {
-			fprintf(stderr, "%s: must either be a client (-c) or server (-s)\n", argv[0]);
+		} else if (strcmp("-x", argv[j]) == 0) {
+			cfg.mode = jana_dummy;
+
+			guard(argv[0], (j = j + 1) < argc, "must specify host");
+
+			if (inet_pton(AF_INET, argv[j], &(cfg.addr.sin_addr)) <= 0) {
+				fprintf(stderr, "invalid ipv4 address: %s\n", argv[j]);
+				exit(1);
+			}
+		}
+
+		if (cfg.mode == jana_decide) {
+			fprintf(stderr, "%s: must either be a client (-c), server (-s) or dummy (-x)\n", argv[j]);
 			fprintf(stderr, "\n");
 			usage();
 		}
@@ -660,7 +652,7 @@ int main(int argc, char const *argv[])
 				j = j + 1;
 			} else if (strcmp("-l", argv[j]) == 0 ||
 				strcmp("--loop", argv[j]) == 0) {
-				
+
 				cfg.keepalive = true;
 			} else if (strcmp("-t", argv[j]) == 0 ||
 				strcmp("--time", argv[j]) == 0) {
@@ -672,7 +664,7 @@ int main(int argc, char const *argv[])
 				}
 			} else if (strcmp("-h", argv[j]) == 0 ||
 				strcmp("--help", argv[j]) == 0) {
-				
+
 				usage();
 			} else {
 				fprintf(stderr, "unknown option %s\n", argv[j]);
@@ -681,15 +673,10 @@ int main(int argc, char const *argv[])
 		};
 	}
 
-	if (cfg.mode == jana_decide) {
-		fprintf(stderr, "%s: must either be a client (-c) or server (-s)\n", argv[0]);
-		fprintf(stderr, "\n");
-		usage();
-	}
-
 	srand(time(NULL));
 
-	if (cfg.mode == jana_client) {
+	if (cfg.mode == jana_client ||
+		cfg.mode == jana_dummy) {
 		run_client(&cfg);
 	}
 
